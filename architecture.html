@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>IT Helpdesk Triage Agent — Architecture</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0f1117; color: #e2e8f0; font-family: 'Segoe UI', system-ui, sans-serif; }
+  #controls {
+    position: sticky; top: 0; z-index: 100;
+    background: #181c27; border-bottom: 1px solid #2d3348;
+    padding: 10px 20px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  }
+  #controls h1 { font-size: 14px; font-weight: 600; color: #a5b4fc; white-space: nowrap; }
+  #search {
+    background: #0f1117; border: 1px solid #3d4466; border-radius: 6px;
+    color: #e2e8f0; padding: 5px 10px; font-size: 12px; width: 180px;
+  }
+  #search::placeholder { color: #555e7a; }
+  .layer-toggle { display: flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer; }
+  .layer-toggle input { cursor: pointer; accent-color: #6366f1; }
+  .dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+  #reset-btn {
+    background: #1e2235; border: 1px solid #3d4466; border-radius: 6px;
+    color: #94a3b8; padding: 5px 12px; font-size: 12px; cursor: pointer;
+    margin-left: auto;
+  }
+  #reset-btn:hover { background: #262c42; color: #e2e8f0; }
+  #canvas-wrap { overflow-x: auto; padding: 20px; }
+  svg { display: block; }
+  .node-group { cursor: pointer; }
+  .node-rect {
+    stroke-width: 1.5; rx: 8; ry: 8;
+    transition: opacity 0.2s;
+    filter: drop-shadow(0 2px 6px rgba(0,0,0,0.6));
+  }
+  .node-label { font-size: 11px; fill: #e2e8f0; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+  .node-sublabel { font-size: 9px; fill: #94a3b8; text-anchor: middle; pointer-events: none; }
+  .edge-path { fill: none; stroke-width: 1.5; opacity: 0.55; transition: opacity 0.2s, stroke-width 0.2s; }
+  .edge-label { font-size: 9px; fill: #64748b; text-anchor: middle; pointer-events: none; transition: opacity 0.2s; }
+  .layer-band { opacity: 0.04; }
+  .layer-label-bg { font-size: 10px; fill: #4a5580; letter-spacing: 1px; font-weight: 600; }
+  .dimmed { opacity: 0.12 !important; }
+  .highlighted .edge-path { opacity: 0.9 !important; stroke-width: 2.5 !important; }
+  #tooltip {
+    position: fixed; pointer-events: none; opacity: 0;
+    background: #1e2235; border: 1px solid #3d4466; border-radius: 8px;
+    padding: 12px 14px; font-size: 12px; max-width: 280px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.6); z-index: 200;
+    transition: opacity 0.15s;
+  }
+  #tooltip h3 { font-size: 13px; color: #a5b4fc; margin-bottom: 6px; }
+  #tooltip .tip-row { margin: 3px 0; color: #94a3b8; line-height: 1.5; }
+  #tooltip .tip-row span { color: #e2e8f0; }
+  #legend {
+    display: flex; gap: 12px; flex-wrap: wrap; padding: 8px 20px 12px;
+    border-bottom: 1px solid #1a1f30; font-size: 11px;
+  }
+  .leg-item { display: flex; align-items: center; gap: 5px; color: #94a3b8; }
+</style>
+</head>
+<body>
+
+<div id="controls">
+  <h1>IT Helpdesk Triage Agent</h1>
+  <input id="search" type="text" placeholder="Search nodes…">
+  <label class="layer-toggle"><input type="checkbox" checked data-layer="inbound"><span class="dot" style="background:#64748b"></span>Inbound</label>
+  <label class="layer-toggle"><input type="checkbox" checked data-layer="orchestration"><span class="dot" style="background:#7c3aed"></span>Orchestration</label>
+  <label class="layer-toggle"><input type="checkbox" checked data-layer="services"><span class="dot" style="background:#1d4ed8"></span>Services / Tools</label>
+  <label class="layer-toggle"><input type="checkbox" checked data-layer="storage"><span class="dot" style="background:#0d9488"></span>Storage</label>
+  <label class="layer-toggle"><input type="checkbox" checked data-layer="external"><span class="dot" style="background:#475569"></span>External</label>
+  <label class="layer-toggle"><input type="checkbox" checked data-layer="hitl"><span class="dot" style="background:#b45309"></span>Human-in-the-Loop</label>
+  <button id="reset-btn">Reset</button>
+</div>
+
+<div id="legend">
+  <div class="leg-item"><span class="dot" style="background:#7c3aed;border-radius:3px"></span>Agent / Subagent</div>
+  <div class="leg-item"><span class="dot" style="background:#1d4ed8;border-radius:3px"></span>Tool / Service</div>
+  <div class="leg-item"><span class="dot" style="background:#0d9488;border-radius:3px"></span>Storage (in-memory)</div>
+  <div class="leg-item"><span class="dot" style="background:#475569;border-radius:3px"></span>External / API</div>
+  <div class="leg-item"><span class="dot" style="background:#b45309;border-radius:3px"></span>HITL / Hook / Queue</div>
+  <div class="leg-item"><span class="dot" style="background:#374151;border-radius:3px"></span>Inbound Channel</div>
+</div>
+
+<div id="canvas-wrap">
+  <svg id="diagram" width="1200" height="820" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+        <path d="M0,0 L0,6 L8,3 z" fill="#4a5580"/>
+      </marker>
+      <marker id="arrow-hi" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+        <path d="M0,0 L0,6 L8,3 z" fill="#818cf8"/>
+      </marker>
+      <marker id="arrow-warn" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+        <path d="M0,0 L0,6 L8,3 z" fill="#f59e0b"/>
+      </marker>
+    </defs>
+    <g id="bands"></g>
+    <g id="edges-g"></g>
+    <g id="nodes-g"></g>
+  </svg>
+</div>
+
+<div id="tooltip"></div>
+
+<script>
+const COLORS = {
+  inbound:       { fill: '#1e2430', stroke: '#475569', text: '#94a3b8' },
+  orchestration: { fill: '#2d1b69', stroke: '#7c3aed', text: '#c4b5fd' },
+  services:      { fill: '#1e3a5f', stroke: '#1d4ed8', text: '#93c5fd' },
+  storage:       { fill: '#0f2e2b', stroke: '#0d9488', text: '#5eead4' },
+  external:      { fill: '#1a1f2e', stroke: '#475569', text: '#94a3b8' },
+  hitl:          { fill: '#2d1e00', stroke: '#b45309', text: '#fbbf24' },
+};
+
+const LAYER_BANDS = [
+  { id: 'inbound',       label: 'INBOUND CHANNELS', y: 10,  h: 110, color: '#475569' },
+  { id: 'orchestration', label: 'ORCHESTRATION',    y: 128, h: 200, color: '#7c3aed' },
+  { id: 'services',      label: 'SERVICES / TOOLS', y: 335, h: 270, color: '#1d4ed8' },
+  { id: 'storage',       label: 'STORAGE & HITL',   y: 612, h: 110, color: '#0d9488' },
+];
+
+// Node: id, label, sublabel, x, y, w, h, layer, details{responsibility,inputs,outputs,tech}
+const NODES = [
+  // Inbound
+  { id:'jira',    label:'Jira SM',       sublabel:'',                x:110, y:55,  w:120, h:46, layer:'inbound',
+    d:{ r:'Receives formal IT tickets from Jira Service Management', i:['Ticket form submission'], o:['Ticket dict → main.py'], t:'Jira Cloud REST API' } },
+  { id:'slack',   label:'Slack',         sublabel:'#it-help',        x:280, y:55,  w:120, h:46, layer:'inbound',
+    d:{ r:'Captures informal help requests from Slack channel', i:['Slack message'], o:['Ticket dict → main.py'], t:'Slack Events API' } },
+  { id:'portal',  label:'Web Portal',    sublabel:'',                x:450, y:55,  w:120, h:46, layer:'inbound',
+    d:{ r:'Self-service portal form for structured ticket submission', i:['HTML form POST'], o:['Ticket dict → main.py'], t:'Internal web app' } },
+  { id:'email',   label:'Email',         sublabel:'',                x:620, y:55,  w:120, h:46, layer:'inbound',
+    d:{ r:'Parses inbound email to ticket body + metadata', i:['SMTP / IMAP email'], o:['Ticket dict → main.py'], t:'Email parser' } },
+
+  // Entry
+  { id:'main',    label:'main.py',       sublabel:'CLI Entry',       x:365, y:178, w:130, h:50, layer:'services',
+    d:{ r:'CLI entry point. Loads .env, validates API key, calls run_coordinator()', i:['--ticket-id, --body, --user-id, --channel'], o:['CoordinatorResult JSON'], t:'Python · argparse · python-dotenv' } },
+
+  // External
+  { id:'claudeapi', label:'Claude API',   sublabel:'claude-sonnet-4-6', x:1050, y:168, w:130, h:50, layer:'external',
+    d:{ r:'Anthropic messages API used by both coordinator and specialist for LLM inference', i:['messages[], system, tools[]'], o:['assistant message with tool_use blocks'], t:'anthropic Python SDK ≥0.52' } },
+  { id:'apikey',    label:'ANTHROPIC',   sublabel:'API_KEY (env)',     x:1050, y:260, w:130, h:46, layer:'external',
+    d:{ r:'API key loaded from environment or .env file', i:['os.getenv("ANTHROPIC_API_KEY")'], o:['Auth header for Claude API'], t:'.env · python-dotenv' } },
+
+  // Orchestration
+  { id:'coordinator', label:'Coordinator',  sublabel:'Agent',         x:300, y:240, w:150, h:58, layer:'orchestration',
+    d:{ r:'Classifies tickets, enriches with user context, routes to queue or spawns specialist. Owns validation-retry loop (≤3 retries). Assembles reasoning chain for every ticket.', i:['ticket dict'], o:['RouteDecision or auto_resolve signal'], t:'Python · anthropic SDK · Pydantic v2' } },
+  { id:'hook',    label:'PreToolUse',  sublabel:'Hard-Stop Hook',      x:600, y:348, w:138, h:50, layer:'hitl',
+    d:{ r:'Synchronous, LLM-free gate on every tool call. Blocks frozen/terminated resets, SSN in wrong fields, payroll endpoints, prompt-injection patterns.', i:['tool_name, tool_input dict'], o:['(allowed: bool, deny_msg: str)'], t:'Python · regex · no I/O' } },
+
+  // Subagent
+  { id:'specialist', label:'PasswordReset', sublabel:'Specialist (subagent)', x:780, y:250, w:155, h:58, layer:'orchestration',
+    d:{ r:'Isolated Task subagent. Receives only ticket_id, user_id, issue_summary. Runs verify→reset→close flow. Escalates on any tool error.', i:['{ticket_id, user_id, issue_summary} — NO coordinator context'], o:['success/escalate dict → coordinator'], t:'Python · anthropic SDK · isolated context' } },
+
+  // Coordinator tools
+  { id:'classify',   label:'classify_ticket',  sublabel:'', x:60,  y:480, w:128, h:46, layer:'services',
+    d:{ r:'Classifies ticket by priority (P1–P4), category, confidence, and auto_resolvability using keyword signals.', i:['body, channel, user_id'], o:['TicketClassification-shaped dict'], t:'Python · keyword heuristics' } },
+  { id:'lkpuser',    label:'lookup_user',       sublabel:'', x:210, y:480, w:128, h:46, layer:'services',
+    d:{ r:'Fetches directory record: email, department, manager, account_status, vip_flag. No payroll data.', i:['user_id'], o:['user dict or ToolError'], t:'Python · in-memory user store' } },
+  { id:'routetkt',   label:'route_ticket',      sublabel:'', x:360, y:480, w:128, h:46, layer:'services',
+    d:{ r:'Assigns ticket to a queue and sets SLA timestamp. Does NOT close or resolve.', i:['ticket_id, queue, priority, notify'], o:['{routed, queue, sla_hours}'], t:'Python · in-memory ticket store' } },
+  { id:'updatetkt',  label:'update_ticket',     sublabel:'', x:510, y:480, w:128, h:46, layer:'services',
+    d:{ r:'Writes full reasoning chain, decision, retry_count, and error_types. Mandatory audit log for every ticket.', i:['ticket_id, reasoning_chain, decision, retry_count, error_types'], o:['{updated, timestamp}'], t:'Python · JSON audit log' } },
+
+  // Specialist tools
+  { id:'lkpacc',    label:'lookup_account',  sublabel:'', x:655, y:480, w:128, h:46, layer:'services',
+    d:{ r:'Returns account status and lock metadata. Returns ACCOUNT_FROZEN error for frozen/terminated — hard-stop cooperation.', i:['user_id'], o:['{account_status, last_login, failed_attempts} or ToolError'], t:'Python · in-memory account store' } },
+  { id:'verifyid',  label:'verify_identity', sublabel:'', x:800, y:480, w:128, h:46, layer:'services',
+    d:{ r:'Employee ID + security challenge. No partial-match bypass. Does not log security answers.', i:['user_id, employee_id, security_answer'], o:['{verified: bool, method_used}'], t:'Python · stub LDAP/AD' } },
+  { id:'resetpw',   label:'reset_password',  sublabel:'', x:945, y:480, w:128, h:46, layer:'services',
+    d:{ r:'Generates temp credentials, delivers by email/SMS. Requires prior verify_identity call. Hard-stops on frozen/terminated.', i:['user_id, delivery_method'], o:['{success, expiry_minutes, reset_at}'], t:'Python · secrets module' } },
+  { id:'closetkt',  label:'close_ticket',    sublabel:'', x:1090,y:480, w:110, h:46, layer:'services',
+    d:{ r:'Marks ticket resolved with summary. Only called after successful reset_password.', i:['ticket_id, resolution_summary, auto_resolved'], o:['{closed, timestamp}'], t:'Python · in-memory ticket store' } },
+
+  // Storage
+  { id:'ticketstore', label:'Ticket Store',    sublabel:'in-memory',  x:130, y:650, w:130, h:46, layer:'storage',
+    d:{ r:'Runtime ticket records: queue, priority, decision, reasoning chain, retry log, status.', i:['route_ticket writes, update_ticket writes, close_ticket writes'], o:['Read by audit/eval'], t:'Python dict (stub for ITSM)' } },
+  { id:'userstore',   label:'User Store',      sublabel:'in-memory',  x:310, y:650, w:130, h:46, layer:'storage',
+    d:{ r:'IT directory: email, department, manager, account_status, vip_flag.', i:['lookup_user reads'], o:['User dict'], t:'Python dict (stub for LDAP/AD)' } },
+  { id:'accountstore',label:'Account Store',   sublabel:'in-memory',  x:750, y:650, w:130, h:46, layer:'storage',
+    d:{ r:'Account metadata: status, failed_attempts, locked_since, employee_id, security answer hash.', i:['lookup_account, verify_identity, reset_password'], o:['Account dict'], t:'Python dict (stub for AD/Okta)' } },
+
+  // HITL
+  { id:'humanqueue',  label:'Human Review',   sublabel:'tier2 queue', x:550, y:650, w:130, h:46, layer:'hitl',
+    d:{ r:'Escalation destination for P1 tickets, low-confidence classifications, security incidents, hard-stop triggers, and retry exhaustion.', i:['route_ticket escalate=true, hard-stop signals'], o:['Human analyst resolves ticket'], t:'ITSM queue · human agent' } },
+];
+
+// Edges: from, to, label, color ('default'|'warn'|'hi'), dashed
+const EDGES = [
+  // Inbound → main
+  { f:'jira',    t:'main',      lb:'ticket dict',        c:'default' },
+  { f:'slack',   t:'main',      lb:'ticket dict',        c:'default' },
+  { f:'portal',  t:'main',      lb:'ticket dict',        c:'default' },
+  { f:'email',   t:'main',      lb:'ticket dict',        c:'default' },
+  // main → coordinator
+  { f:'main',       t:'coordinator', lb:'run_coordinator()', c:'hi' },
+  // coordinator → claude api
+  { f:'coordinator',t:'claudeapi',   lb:'messages API',      c:'default' },
+  { f:'claudeapi',  t:'apikey',      lb:'auth',              c:'default', dash:true },
+  // coordinator → hook (every tool call)
+  { f:'coordinator',t:'hook',        lb:'pre-tool check',    c:'warn' },
+  // coordinator → specialist
+  { f:'coordinator',t:'specialist',  lb:'{ticket_id, user_id, issue_summary}', c:'hi' },
+  // specialist → claude api
+  { f:'specialist', t:'claudeapi',   lb:'messages API',      c:'default' },
+  // specialist → hook
+  { f:'specialist', t:'hook',        lb:'pre-tool check',    c:'warn' },
+  // coordinator → coord tools
+  { f:'coordinator',t:'classify',    lb:'tool_use',          c:'default' },
+  { f:'coordinator',t:'lkpuser',     lb:'tool_use',          c:'default' },
+  { f:'coordinator',t:'routetkt',    lb:'tool_use',          c:'default' },
+  { f:'coordinator',t:'updatetkt',   lb:'tool_use',          c:'default' },
+  // specialist → spec tools
+  { f:'specialist', t:'lkpacc',      lb:'tool_use',          c:'default' },
+  { f:'specialist', t:'verifyid',    lb:'tool_use',          c:'default' },
+  { f:'specialist', t:'resetpw',     lb:'tool_use',          c:'default' },
+  { f:'specialist', t:'closetkt',    lb:'tool_use',          c:'default' },
+  // coord tools → storage
+  { f:'classify',   t:'userstore',    lb:'read',             c:'default' },
+  { f:'lkpuser',    t:'userstore',    lb:'read',             c:'default' },
+  { f:'routetkt',   t:'ticketstore',  lb:'write',            c:'default' },
+  { f:'updatetkt',  t:'ticketstore',  lb:'write (audit)',    c:'default' },
+  // spec tools → storage
+  { f:'lkpacc',     t:'accountstore', lb:'read',             c:'default' },
+  { f:'verifyid',   t:'accountstore', lb:'read',             c:'default' },
+  { f:'resetpw',    t:'accountstore', lb:'write',            c:'default' },
+  { f:'closetkt',   t:'ticketstore',  lb:'write',            c:'default' },
+  // escalation paths
+  { f:'routetkt',   t:'humanqueue',   lb:'escalated',        c:'warn' },
+  { f:'hook',       t:'humanqueue',   lb:'hard stop →',      c:'warn' },
+];
+
+// ─── Helpers ───────────────────────────────────────────────────────────────
+const nodeMap = {};
+NODES.forEach(n => { nodeMap[n.id] = n; });
+
+function cx(n) { return n.x + n.w/2; }
+function cy(n) { return n.y + n.h/2; }
+
+function edgeColor(c) {
+  return c === 'hi' ? '#6366f1' : c === 'warn' ? '#f59e0b' : '#4a5580';
+}
+
+function curvePath(n1, n2) {
+  const x1 = cx(n1), y1 = cy(n1), x2 = cx(n2), y2 = cy(n2);
+  const dx = x2 - x1, dy = y2 - y1;
+  const mx = (x1+x2)/2, my = (y1+y2)/2;
+  // vertical-dominant: S-curve
+  if (Math.abs(dy) >= Math.abs(dx)) {
+    return `M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}`;
+  } else {
+    return `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`;
+  }
+}
+
+// ─── Render ────────────────────────────────────────────────────────────────
+const svg = document.getElementById('diagram');
+const bandsG = document.getElementById('bands');
+const edgesG = document.getElementById('edges-g');
+const nodesG = document.getElementById('nodes-g');
+
+function svgEl(tag, attrs) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  Object.entries(attrs).forEach(([k,v]) => el.setAttribute(k,v));
+  return el;
+}
+
+// Layer bands
+LAYER_BANDS.forEach(lb => {
+  const rect = svgEl('rect', { x:0, y:lb.y, width:1200, height:lb.h, fill:lb.color, class:'layer-band', 'data-layer':lb.id });
+  bandsG.appendChild(rect);
+  const txt = svgEl('text', { x:6, y:lb.y+12, class:'layer-label-bg', 'data-layer':lb.id });
+  txt.textContent = lb.label;
+  bandsG.appendChild(txt);
+});
+
+// Edges
+EDGES.forEach((e, i) => {
+  const n1 = nodeMap[e.f], n2 = nodeMap[e.t];
+  if (!n1 || !n2) return;
+  const col = edgeColor(e.c);
+  const mid_x = (cx(n1)+cx(n2))/2, mid_y = (cy(n1)+cy(n2))/2;
+
+  const g = svgEl('g', { class:'edge-g', 'data-from':e.f, 'data-to':e.t });
+
+  const path = svgEl('path', {
+    d: curvePath(n1, n2),
+    stroke: col, class:'edge-path',
+    'stroke-dasharray': e.dash ? '4 3' : 'none',
+    'marker-end': `url(#arrow)`,
+  });
+  g.appendChild(path);
+
+  const lbl = svgEl('text', { x:mid_x, y:mid_y-5, class:'edge-label' });
+  lbl.textContent = e.lb;
+  g.appendChild(lbl);
+
+  edgesG.appendChild(g);
+});
+
+// Nodes
+NODES.forEach(n => {
+  const col = COLORS[n.layer];
+  const g = svgEl('g', { class:'node-group', 'data-id':n.id, 'data-layer':n.layer });
+
+  const rect = svgEl('rect', {
+    x:n.x, y:n.y, width:n.w, height:n.h, rx:8, ry:8,
+    fill:col.fill, stroke:col.stroke, class:'node-rect',
+  });
+  g.appendChild(rect);
+
+  const textY = n.sublabel ? n.y + n.h/2 - 7 : n.y + n.h/2;
+  const lbl = svgEl('text', { x:cx(n), y:textY, class:'node-label' });
+  lbl.textContent = n.label;
+  g.appendChild(lbl);
+
+  if (n.sublabel) {
+    const sub = svgEl('text', { x:cx(n), y:n.y + n.h/2 + 8, class:'node-sublabel' });
+    sub.textContent = n.sublabel;
+    g.appendChild(sub);
+  }
+
+  // Hover tooltip
+  g.addEventListener('mouseenter', evt => showTooltip(n, evt));
+  g.addEventListener('mousemove',  evt => moveTooltip(evt));
+  g.addEventListener('mouseleave', hideTooltip);
+  g.addEventListener('click',      () => toggleHighlight(n.id));
+
+  nodesG.appendChild(g);
+});
+
+// ─── Tooltip ───────────────────────────────────────────────────────────────
+const tip = document.getElementById('tooltip');
+
+function showTooltip(n, evt) {
+  const d = n.d;
+  tip.innerHTML = `
+    <h3>${n.label}${n.sublabel ? ' <small style="color:#64748b;font-weight:400">/ ${n.sublabel}</small>' : ''}</h3>
+    <div class="tip-row"><b>Role:</b> <span>${d.r}</span></div>
+    <div class="tip-row"><b>Inputs:</b> <span>${d.i.join('; ')}</span></div>
+    <div class="tip-row"><b>Outputs:</b> <span>${d.o.join('; ')}</span></div>
+    <div class="tip-row"><b>Tech:</b> <span>${d.t}</span></div>
+  `;
+  tip.style.opacity = '1';
+  moveTooltip(evt);
+}
+function moveTooltip(evt) {
+  const x = Math.min(evt.clientX + 14, window.innerWidth - 300);
+  const y = Math.min(evt.clientY + 14, window.innerHeight - 160);
+  tip.style.left = x + 'px';
+  tip.style.top  = y + 'px';
+}
+function hideTooltip() { tip.style.opacity = '0'; }
+
+// ─── Click highlight ────────────────────────────────────────────────────────
+let activeNode = null;
+
+function toggleHighlight(id) {
+  if (activeNode === id) { clearHighlight(); return; }
+  activeNode = id;
+
+  const connected = new Set([id]);
+  EDGES.forEach(e => {
+    if (e.f === id) connected.add(e.t);
+    if (e.t === id) connected.add(e.f);
+  });
+
+  document.querySelectorAll('.node-group').forEach(g => {
+    g.classList.toggle('dimmed', !connected.has(g.dataset.id));
+  });
+  document.querySelectorAll('.edge-g').forEach(g => {
+    const hit = connected.has(g.dataset.from) && connected.has(g.dataset.to) &&
+                (g.dataset.from === id || g.dataset.to === id);
+    g.classList.toggle('dimmed', !hit);
+    g.classList.toggle('highlighted', hit);
+  });
+}
+
+function clearHighlight() {
+  activeNode = null;
+  document.querySelectorAll('.node-group, .edge-g').forEach(el => {
+    el.classList.remove('dimmed', 'highlighted');
+  });
+}
+
+// ─── Search ─────────────────────────────────────────────────────────────────
+document.getElementById('search').addEventListener('input', function() {
+  const q = this.value.toLowerCase().trim();
+  if (!q) { clearHighlight(); return; }
+  const matched = new Set();
+  NODES.forEach(n => {
+    if (n.label.toLowerCase().includes(q) || n.sublabel.toLowerCase().includes(q) ||
+        n.d.r.toLowerCase().includes(q) || n.d.t.toLowerCase().includes(q))
+      matched.add(n.id);
+  });
+  document.querySelectorAll('.node-group').forEach(g => {
+    g.classList.toggle('dimmed', !matched.has(g.dataset.id));
+  });
+  document.querySelectorAll('.edge-g').forEach(g => {
+    const hit = matched.has(g.dataset.from) || matched.has(g.dataset.to);
+    g.classList.toggle('dimmed', !hit);
+  });
+  activeNode = null;
+});
+
+// ─── Layer toggles ───────────────────────────────────────────────────────────
+document.querySelectorAll('.layer-toggle input').forEach(cb => {
+  cb.addEventListener('change', () => {
+    const layer = cb.dataset.layer;
+    const show = cb.checked;
+    document.querySelectorAll(`[data-layer="${layer}"]`).forEach(el => {
+      el.style.display = show ? '' : 'none';
+    });
+    // Also hide edges where both endpoints belong to hidden layers
+    document.querySelectorAll('.edge-g').forEach(g => {
+      const fn = nodeMap[g.dataset.from], tn = nodeMap[g.dataset.to];
+      if (!fn || !tn) return;
+      const fnVisible = document.querySelector(`[data-id="${fn.id}"]`)?.style.display !== 'none';
+      const tnVisible = document.querySelector(`[data-id="${tn.id}"]`)?.style.display !== 'none';
+      g.style.display = (fnVisible && tnVisible) ? '' : 'none';
+    });
+  });
+});
+
+// ─── Reset ───────────────────────────────────────────────────────────────────
+document.getElementById('reset-btn').addEventListener('click', () => {
+  clearHighlight();
+  document.getElementById('search').value = '';
+  document.querySelectorAll('.layer-toggle input').forEach(cb => { cb.checked = true; });
+  document.querySelectorAll('[data-layer]').forEach(el => { el.style.display = ''; });
+  document.querySelectorAll('.edge-g').forEach(g => { g.style.display = ''; });
+});
+</script>
+</body>
+</html>
