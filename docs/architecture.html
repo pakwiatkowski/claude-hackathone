@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IT Helpdesk Triage Agent — Architecture</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0d1117;
+    --bg2:       #161b22;
+    --bg3:       #21262d;
+    --border:    #30363d;
+    --text:      #c9d1d9;
+    --muted:     #6e7681;
+    --blue:      #58a6ff;
+    --purple:    #bc8cff;
+    --red:       #ff7b72;
+    --orange:    #ffa657;
+    --yellow:    #e3b341;
+    --green:     #3fb950;
+    --teal:      #39d353;
+    --mono:      ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans:      system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.6;
+    padding: 24px 16px 64px;
+  }
+
+  .page { max-width: 1100px; margin: 0 auto; }
+
+  /* ── header ── */
+  .header {
+    border-left: 4px solid var(--blue);
+    background: var(--bg2);
+    border-radius: 6px;
+    padding: 20px 24px;
+    margin-bottom: 8px;
+  }
+  .header h1 { font-size: 1.5rem; color: var(--blue); margin-bottom: 4px; }
+  .header .desc { color: var(--text); margin-bottom: 10px; }
+  .model-badge {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 10px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--purple);
+    margin-right: 6px;
+  }
+  .config-row { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .cfg {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 10px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--orange);
+  }
+
+  /* ── section arrows ── */
+  .arrow {
+    text-align: center;
+    font-size: 1.4rem;
+    color: var(--muted);
+    margin: 6px 0;
+    line-height: 1;
+  }
+
+  /* ── generic card ── */
+  .card {
+    background: var(--bg2);
+    border-radius: 6px;
+    padding: 18px 20px;
+    margin-bottom: 8px;
+    border: 1px solid var(--border);
+  }
+  .card.blue   { border-left: 4px solid var(--blue);   }
+  .card.purple { border-left: 4px solid var(--purple); }
+  .card.red    { border-left: 4px solid var(--red);    }
+  .card.orange { border-left: 4px solid var(--orange); }
+  .card.yellow { border-left: 4px solid var(--yellow); }
+  .card.green  { border-left: 4px solid var(--green);  }
+  .card.teal   { border-left: 4px solid var(--teal);   }
+
+  .card h2 {
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+  .card h3 { font-size: 1rem; color: var(--text); margin-bottom: 6px; }
+
+  /* ── entry point ── */
+  .ep-grid { display: flex; flex-wrap: wrap; gap: 16px; }
+  .ep-col { flex: 1; min-width: 220px; }
+  .ep-col h4 { font-size: 0.78rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 6px; }
+  code {
+    font-family: var(--mono);
+    font-size: 12px;
+    background: var(--bg3);
+    border-radius: 3px;
+    padding: 1px 5px;
+    color: var(--orange);
+  }
+  .cli-block {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--blue);
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .shape-block {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--teal);
+    white-space: pre;
+  }
+
+  /* ── coordinator loop ── */
+  .loop-box {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 16px;
+    margin-top: 12px;
+  }
+  .loop-box h4 { font-size: 0.78rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 8px; }
+  .loop-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .step-num {
+    min-width: 22px;
+    height: 22px;
+    background: var(--purple);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--bg);
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .branch-box {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 14px;
+    margin-top: 8px;
+    font-size: 13px;
+  }
+  .branch-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 3px;
+    margin-right: 6px;
+  }
+  .branch-label.end  { background: var(--green);  color: var(--bg); }
+  .branch-label.tool { background: var(--orange);  color: var(--bg); }
+  .escalation-callout {
+    background: #2d1b00;
+    border: 1px solid var(--yellow);
+    border-left: 4px solid var(--yellow);
+    border-radius: 4px;
+    padding: 12px 14px;
+    margin-top: 12px;
+  }
+  .escalation-callout h4 { color: var(--yellow); font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+  .esc-row { display: flex; gap: 10px; margin-bottom: 4px; align-items: flex-start; }
+  .esc-trigger {
+    font-family: var(--mono);
+    font-size: 11px;
+    background: #3d2800;
+    border: 1px solid var(--yellow);
+    border-radius: 3px;
+    padding: 1px 7px;
+    color: var(--yellow);
+    min-width: 210px;
+    flex-shrink: 0;
+  }
+  .retry-box {
+    background: #1a0f2e;
+    border: 1px solid var(--purple);
+    border-left: 4px solid var(--purple);
+    border-radius: 4px;
+    padding: 12px 14px;
+    margin-top: 12px;
+  }
+  .retry-box h4 { color: var(--purple); font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+
+  /* ── two-col grid ── */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 8px; }
+  @media (max-width: 680px) {
+    .two-col { grid-template-columns: 1fr; }
+    .ep-col { flex: 0 0 100%; }
+  }
+
+  /* ── tool cards ── */
+  .section-header {
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin: 16px 0 8px;
+    padding-left: 4px;
+  }
+  .tool-card {
+    background: var(--bg2);
+    border-left: 4px solid var(--orange);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--orange);
+    border-radius: 6px;
+    padding: 14px 16px;
+  }
+  .tool-name {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--orange);
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .tool-purpose { font-size: 13px; color: var(--text); margin-bottom: 8px; }
+  .fields-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
+  .field-row {
+    display: flex;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 11px;
+    margin-bottom: 2px;
+    align-items: flex-start;
+  }
+  .field-name { color: var(--blue); min-width: 160px; }
+  .field-type { color: var(--purple); }
+  .field-req  { color: var(--red); font-size: 10px; margin-left: 2px; }
+  .does-not {
+    margin-top: 8px;
+    background: var(--bg3);
+    border-radius: 3px;
+    padding: 6px 10px;
+    font-size: 12px;
+    color: var(--muted);
+    border-left: 3px solid var(--red);
+  }
+  .does-not strong { color: var(--red); font-size: 11px; }
+  .error-shape {
+    margin-top: 8px;
+    background: var(--bg3);
+    border-radius: 3px;
+    padding: 6px 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--teal);
+  }
+
+  /* ── specialist cards ── */
+  .specialist-card {
+    background: var(--bg2);
+    border-left: 4px solid var(--red);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--red);
+    border-radius: 6px;
+    padding: 14px 16px;
+  }
+  .specialist-name { font-size: 1rem; font-weight: 700; color: var(--red); margin-bottom: 2px; }
+  .isolated-badge {
+    display: inline-block;
+    background: #3d0000;
+    border: 1px solid var(--red);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+    color: var(--red);
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .spec-model { font-family: var(--mono); font-size: 11px; color: var(--purple); margin-bottom: 8px; }
+  .spec-receives {
+    background: var(--bg3);
+    border-radius: 3px;
+    padding: 6px 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--teal);
+    margin-bottom: 8px;
+    white-space: pre;
+  }
+  .spec-tools { margin-top: 8px; }
+  .spec-tool-row {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--orange);
+    margin-bottom: 2px;
+    padding-left: 4px;
+    border-left: 2px solid var(--orange);
+    padding: 1px 0 1px 8px;
+  }
+  .spec-esc {
+    margin-top: 10px;
+    background: #2d1b00;
+    border-left: 3px solid var(--yellow);
+    border-radius: 3px;
+    padding: 6px 10px;
+    font-size: 12px;
+    color: var(--yellow);
+  }
+  .spec-hard-ceil {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--muted);
+    font-family: var(--mono);
+  }
+
+  /* ── hooks card ── */
+  .hook-card {
+    background: var(--bg2);
+    border-left: 4px solid var(--yellow);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--yellow);
+    border-radius: 6px;
+    padding: 14px 16px;
+    margin-bottom: 12px;
+  }
+  .hook-title { font-size: 1rem; font-weight: 700; color: var(--yellow); margin-bottom: 4px; }
+  .hook-desc { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+  .hard-stop-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 8px;
+    padding: 10px 12px;
+    background: var(--bg3);
+    border-radius: 4px;
+    border-left: 3px solid var(--red);
+  }
+  @media (max-width: 680px) { .hard-stop-row { grid-template-columns: 1fr; } }
+  .hs-label { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--red); margin-bottom: 4px; }
+  .hs-condition { font-family: var(--mono); font-size: 12px; color: var(--yellow); word-break: break-all; }
+  .hs-reason { font-size: 12px; color: var(--text); }
+  .exfil-list { margin-top: 8px; }
+  .exfil-item {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--red);
+    background: var(--bg3);
+    border-radius: 3px;
+    padding: 2px 8px;
+    margin-bottom: 3px;
+  }
+
+  /* ── schemas ── */
+  .schema-card {
+    background: var(--bg2);
+    border-left: 4px solid var(--teal);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--teal);
+    border-radius: 6px;
+    padding: 14px 16px;
+  }
+  .schema-name { font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--teal); margin-bottom: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; padding: 4px 8px; background: var(--bg3); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+  td { padding: 4px 8px; border-top: 1px solid var(--border); }
+  .td-field { font-family: var(--mono); color: var(--blue); }
+  .td-type  { font-family: var(--mono); color: var(--purple); }
+  .td-note  { color: var(--muted); }
+  .validator-note { margin-top: 8px; font-size: 11px; background: var(--bg3); border-radius: 3px; padding: 4px 8px; color: var(--muted); font-family: var(--mono); }
+
+  /* ── output ── */
+  .output-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  @media (max-width: 680px) { .output-grid { grid-template-columns: 1fr; } }
+  .output-path {
+    background: var(--bg3);
+    border-radius: 4px;
+    padding: 12px 14px;
+    border-left: 3px solid var(--green);
+  }
+  .output-path h4 { color: var(--green); font-size: 0.82rem; font-weight: 700; margin-bottom: 6px; }
+  .output-path p { font-size: 12px; color: var(--text); }
+
+  /* ── legend ── */
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px;
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+  .legend-swatch { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+
+  /* ── sla table ── */
+  .sla-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 10px; }
+  @media (max-width: 680px) { .sla-grid { grid-template-columns: repeat(2, 1fr); } }
+  .sla-cell {
+    background: var(--bg3);
+    border-radius: 4px;
+    padding: 8px;
+    text-align: center;
+  }
+  .sla-pri { font-family: var(--mono); font-weight: 700; font-size: 1rem; }
+  .sla-pri.p1 { color: var(--red); }
+  .sla-pri.p2 { color: var(--orange); }
+  .sla-pri.p3 { color: var(--yellow); }
+  .sla-pri.p4 { color: var(--green); }
+  .sla-val { font-size: 12px; color: var(--muted); }
+
+  ul { padding-left: 18px; }
+  li { margin-bottom: 3px; font-size: 13px; }
+
+  .group-label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--muted);
+    padding: 10px 0 6px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 8px;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ══════════════════════════════════════════════════════════ HEADER -->
+  <div class="header">
+    <h1>IT Helpdesk Triage Agent</h1>
+    <p class="desc">Automated first-responder that classifies, routes, and auto-resolves IT support tickets across Jira, Slack, and portal channels.</p>
+    <div>
+      <span class="model-badge">claude-sonnet-4-6</span>
+      <span style="font-size:12px;color:var(--muted)">— used by all 4 agent loops (coordinator + 3 specialists)</span>
+    </div>
+    <div class="config-row">
+      <span class="cfg">MAX_RETRIES = 3</span>
+      <span class="cfg">CONFIDENCE_THRESHOLD = 0.70</span>
+      <span class="cfg">HIGH_IMPACT_DOLLAR = 10,000</span>
+      <span class="cfg">Coordinator ceiling = 30 iters</span>
+      <span class="cfg">Specialist ceiling = 20 iters</span>
+    </div>
+  </div>
+
+  <div class="arrow">↓</div>
+
+  <!-- ══════════════════════════════════════════════════════ ENTRY POINT -->
+  <div class="card blue">
+    <h2>Entry Point — CLI / Environment</h2>
+    <div class="ep-grid">
+      <div class="ep-col">
+        <h4>Invocation</h4>
+        <div class="cli-block">python src/main.py \
+  --ticket-id T-001 \
+  --body "I forgot my password" \
+  --user-id U-003 \
+  --channel portal \
+  [--pretty]</div>
+        <div style="margin-top:10px;">
+          <h4>Required environment variable</h4>
+          <code>ANTHROPIC_API_KEY</code>
+          <span style="font-size:12px;color:var(--muted);margin-left:6px;">— checked at startup; exits 1 if absent</span>
+        </div>
+        <div style="margin-top:10px;">
+          <h4>Channel choices</h4>
+          <code>jira</code> <code>slack</code> <code>portal</code> <code>email</code>
+          <span style="font-size:12px;color:var(--muted);margin-left:4px;">(default: portal)</span>
+        </div>
+      </div>
+      <div class="ep-col">
+        <h4>Data shape passed to coordinator</h4>
+        <div class="shape-block">{
+  "ticket_id": str,   // e.g. "T-001"
+  "body":      str,   // full ticket text
+  "user_id":   str,   // e.g. "U-003"
+  "channel":   str    // jira|slack|portal|email
+}</div>
+        <div style="margin-top:10px;">
+          <h4>Output</h4>
+          <div class="shape-block">{
+  "ticket_id":        str,
+  "priority":         str,    // P1–P4
+  "category":         str,
+  "confidence":       float,
+  "queue":            str|null,
+  "auto_resolved":    bool,
+  "escalated":        bool,
+  "escalation_reason":str|null,
+  "retry_count":      int,
+  "error_types":      list[str],
+  "reasoning_chain":  str     // JSON
+}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">↓</div>
+
+  <!-- ════════════════════════════════════════════════ COORDINATOR AGENT -->
+  <div class="card purple">
+    <h2>Coordinator Agent Loop</h2>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;">
+      <span class="model-badge">claude-sonnet-4-6</span>
+      <span style="font-size:12px;color:var(--muted);">4 tools · max 30 iterations · owns all classification &amp; routing</span>
+    </div>
+
+    <h4 style="font-size:0.78rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted);margin-bottom:8px;">System Prompt Responsibilities</h4>
+    <ul>
+      <li>Call <code>classify_ticket</code> with body, channel, user_id — validate against <code>TicketClassification</code> schema, retry up to 3×.</li>
+      <li>Call <code>lookup_user</code> to retrieve account status, VIP flag, and department context.</li>
+      <li>Apply auto-resolve decision matrix (6 conditions must ALL be true) or fall through to route path.</li>
+      <li>On auto-resolve: emit <code>{"action":"auto_resolve", ...}</code>; on route: call <code>route_ticket</code> then emit <code>{"action":"routed", ...}</code>.</li>
+      <li>Always call <code>update_ticket</code> last — write full reasoning chain, retry count, error types as the audit log.</li>
+    </ul>
+
+    <div class="loop-box">
+      <h4>Agent Loop — stop_reason branches</h4>
+
+      <div class="branch-box">
+        <span class="branch-label tool">stop_reason = "tool_use"</span>
+        For each tool_use block in response.content:
+        <ol style="margin:8px 0 0 18px;font-size:13px;">
+          <li>Run <strong>PreToolUse hook</strong> — if denied, return <code>isError:true, reasonCode:"HARD_STOP"</code> and log.</li>
+          <li>Dispatch to registered handler in <code>COORDINATOR_TOOL_HANDLERS</code>.</li>
+          <li>If tool is <code>classify_ticket</code>: validate output against <code>TicketClassification</code> — see retry loop below.</li>
+          <li>Append tool results to messages → loop continues.</li>
+        </ol>
+      </div>
+
+      <div class="branch-box" style="margin-top:8px;">
+        <span class="branch-label end">stop_reason = "end_turn"</span>
+        Parse final JSON from text block:
+        <ul style="margin:6px 0 0 18px;font-size:13px;">
+          <li><strong>action = "auto_resolve"</strong> → dispatch to PasswordReset / Networking / Software specialist based on <code>category</code>. If specialist escalates → call <code>route_ticket("tier2")</code>.</li>
+          <li><strong>action = "routed"</strong> → capture queue, escalated flag, escalation_reason from decision JSON.</li>
+          <li>Break loop, finalise result.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="retry-box">
+      <h4>Validation-Retry Loop — classify_ticket only</h4>
+      <ol style="margin:0 0 0 18px;font-size:13px;">
+        <li>Call <code>classify_ticket</code> → run <code>TicketClassification.model_validate(result)</code>.</li>
+        <li>On <code>ValidationError</code>: increment <code>retry_count</code>, append error to <code>error_types[]</code>, feed specific error message back as: <em>"classify_ticket result failed schema validation (attempt N/3): &lt;error&gt;. Please correct and retry."</em></li>
+        <li>If <code>retry_count &gt;= MAX_RETRIES (3)</code>: return <code>VALIDATION_EXHAUSTED</code> error, set <code>escalated=True</code>, <code>escalation_reason="schema_validation_exhausted"</code>.</li>
+        <li>On valid result: update <code>final_result.priority / .category / .confidence</code>.</li>
+      </ol>
+    </div>
+
+    <div class="escalation-callout">
+      <h4>Escalation Rules (Slow Stop) — set escalated=true when any apply</h4>
+      <div class="esc-row"><span class="esc-trigger">priority = "P1"</span><span>Route to tier2, require human acknowledgement before any action.</span></div>
+      <div class="esc-row"><span class="esc-trigger">confidence &lt; 0.70</span><span>Route to tier2 with confidence score attached.</span></div>
+      <div class="esc-row"><span class="esc-trigger">category = "security_incident"</span><span>Route to security queue; notify Security team.</span></div>
+      <div class="esc-row"><span class="esc-trigger">account_status = "frozen" or "terminated"</span><span>Route to Security team; auto-resolve blocked.</span></div>
+      <div class="esc-row"><span class="esc-trigger">vip_flag = true AND priority IN [P1, P2]</span><span>Route to tier2 flagged as VIP; human review required.</span></div>
+      <div class="esc-row"><span class="esc-trigger">retry_count = MAX_RETRIES (3)</span><span>Route to tier2 with full retry log and error_types list.</span></div>
+    </div>
+
+    <div style="margin-top:14px;">
+      <h4 style="font-size:0.78rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted);margin-bottom:8px;">Auto-Resolve Decision Matrix — ALL 6 conditions must be true</h4>
+      <ul style="font-size:13px;">
+        <li><code>auto_resolvable = true</code></li>
+        <li><code>confidence &gt;= 0.70</code></li>
+        <li><code>priority != "P1"</code></li>
+        <li><code>category IN ["password_reset", "network", "software"]</code></li>
+        <li><code>account_status != "frozen"</code> and <code>account_status != "terminated"</code></li>
+        <li><code>vip_flag = false</code> OR <code>priority IN ["P3", "P4"]</code></li>
+      </ul>
+    </div>
+
+    <div style="margin-top:14px;">
+      <h4 style="font-size:0.78rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted);margin-bottom:8px;">SLA Commitments</h4>
+      <div class="sla-grid">
+        <div class="sla-cell"><div class="sla-pri p1">P1</div><div class="sla-val">1 hour</div></div>
+        <div class="sla-cell"><div class="sla-pri p2">P2</div><div class="sla-val">4 hours</div></div>
+        <div class="sla-cell"><div class="sla-pri p3">P3</div><div class="sla-val">8 hours</div></div>
+        <div class="sla-cell"><div class="sla-pri p4">P4</div><div class="sla-val">24 hours</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">↓</div>
+
+  <!-- ══════════════════════════════════════════════ COORDINATOR TOOLS -->
+  <div class="group-label">Coordinator Tools</div>
+  <div class="two-col">
+
+    <div class="tool-card">
+      <div class="tool-name">classify_ticket</div>
+      <div class="tool-purpose">Classify an incoming ticket. Returns priority (P1–P4), category, confidence score (0–1), brief reasoning, and auto_resolvable flag.</div>
+      <div class="fields-label">Required inputs</div>
+      <div class="field-row"><span class="field-name">body</span><span class="field-type">string</span><span class="field-req">*</span></div>
+      <div class="field-row"><span class="field-name">channel</span><span class="field-type">enum jira|slack|portal|email</span><span class="field-req">*</span></div>
+      <div class="field-row"><span class="field-name">user_id</span><span class="field-type">string</span><span class="field-req">*</span></div>
+      <div class="does-not"><strong>Does NOT:</strong> classify from ticket number alone. Does NOT process attachments. Cannot infer category without ticket body content.</div>
+      <div class="error-shape">{ isError: true, reasonCode: "EMPTY_BODY", guidance: "..." }</div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-name">lookup_user</div>
+      <div class="tool-purpose">Look up IT directory entry for a user. Returns email, display_name, department, manager_id, account_status, and vip_flag.</div>
+      <div class="fields-label">Required inputs</div>
+      <div class="field-row"><span class="field-name">user_id</span><span class="field-type">string (e.g. "U-001")</span><span class="field-req">*</span></div>
+      <div class="does-not"><strong>Does NOT:</strong> return payroll data, salary, financial records, or PII beyond directory fields.</div>
+      <div class="error-shape">{ isError: true, reasonCode: "USER_NOT_FOUND", guidance: "..." }</div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-name">route_ticket</div>
+      <div class="tool-purpose">Assign ticket to a helpdesk queue and set its SLA timestamp. Valid queues: tier1, tier2, networking, security, hardware.</div>
+      <div class="fields-label">Required inputs</div>
+      <div class="field-row"><span class="field-name">ticket_id</span><span class="field-type">string</span><span class="field-req">*</span></div>
+      <div class="field-row"><span class="field-name">queue</span><span class="field-type">enum tier1|tier2|networking|security|hardware</span><span class="field-req">*</span></div>
+      <div class="field-row"><span class="field-name">priority</span><span class="field-type">enum P1|P2|P3|P4</span><span class="field-req">*</span></div>
+      <div class="field-row"><span class="field-name">notify</span><span class="field-type">boolean (default: true)</span></div>
+      <div class="does-not"><strong>Does NOT:</strong> close or resolve the ticket — only assigns it. Does NOT send user notifications directly; set notify=true to trigger an automated acknowledgement email.</div>
+      <div class="error-shape">{ isError: true, reasonCode: "INVALID_QUEUE"|"INVALID_PRIORITY", guidance: "..." }</div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-name">update_ticket</div>
+      <div class="tool-purpose">Write the coordinator's reasoning chain, final decision, and retry metadata to the ticket record. Mandatory audit log — called on every ticket regardless of outcome.</div>
+      <div class="fields-label">Required inputs</div>
+      <div class="field-row"><span class="field-name">ticket_id</span><span class="field-type">string</span><span class="field-req">*</span></div>
+      <div class="field-row"><span class="field-name">reasoning_chain</span><span class="field-type">string (JSON-serialised steps)</span><span class="field-req">*</span></div>
+      <div class="field-row"><span class="field-name">decision</span><span class="field-type">enum auto_resolved|routed|escalated</span><span class="field-req">*</span></div>
+      <div class="field-row"><span class="field-name">retry_count</span><span class="field-type">integer ≥ 0</span><span class="field-req">*</span></div>
+      <div class="field-row"><span class="field-name">error_types</span><span class="field-type">array[string]</span><span class="field-req">*</span></div>
+      <div class="does-not"><strong>Does NOT:</strong> make routing decisions. Does NOT change ticket status.</div>
+      <div class="error-shape">Returns: { updated: true, timestamp: "ISO8601" }</div>
+    </div>
+
+  </div>
+
+  <div class="arrow">↓</div>
+
+  <!-- ═════════════════════════════════════════════ SPECIALIST SUBAGENTS -->
+  <div class="group-label">Specialist Subagents</div>
+  <div class="two-col">
+
+    <!-- PASSWORD RESET -->
+    <div class="specialist-card">
+      <div class="specialist-name">PasswordResetSpecialist</div>
+      <div class="isolated-badge">⚠ ISOLATED — does NOT inherit coordinator context</div>
+      <div class="spec-model">model: claude-sonnet-4-6 · max 20 iterations</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Activated when category="password_reset" and all auto-resolve conditions met.</div>
+      <div class="spec-receives">Receives exactly:
+{
+  ticket_id:     str,
+  user_id:       str,
+  issue_summary: str
+}</div>
+      <div class="fields-label" style="margin-top:8px;">Tool sequence</div>
+      <div class="spec-tools">
+        <div class="spec-tool-row">lookup_account → confirm account is active/locked (not frozen/terminated)</div>
+        <div class="spec-tool-row">verify_identity → employee_id + security_answer challenge/response</div>
+        <div class="spec-tool-row">reset_password → generate temp credentials, deliver via email or SMS</div>
+        <div class="spec-tool-row">close_ticket → mark resolved with summary (only after reset success)</div>
+      </div>
+      <div class="spec-esc">
+        <strong>Escalation / Hard Stop:</strong> Any tool returning isError=true immediately sets escalate=true, breaks the loop, and signals the coordinator to route to tier2. Never retry on error.
+      </div>
+      <div class="spec-hard-ceil">Hard rule: reset_password must NOT be called before verify_identity returns verified=true.</div>
+    </div>
+
+    <!-- NETWORKING -->
+    <div class="specialist-card">
+      <div class="specialist-name">NetworkingSpecialist</div>
+      <div class="isolated-badge">⚠ ISOLATED — does NOT inherit coordinator context</div>
+      <div class="spec-model">model: claude-sonnet-4-6 · max 20 iterations</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Activated when category="network" and VPN user-side signals detected.</div>
+      <div class="spec-receives">Receives exactly:
+{
+  ticket_id:     str,
+  user_id:       str,
+  issue_summary: str
+}</div>
+      <div class="fields-label" style="margin-top:8px;">Tool sequence</div>
+      <div class="spec-tools">
+        <div class="spec-tool-row">check_vpn_status → overview of all gateway health</div>
+        <div class="spec-tool-row">get_user_connectivity_diagnostics → user-specific VPN state</div>
+        <div class="spec-tool-row">push_remediation_guide → send targeted guide (vpn_gateway_degraded | vpn_client_outdated | vpn_auth_failures | vpn_general)</div>
+        <div class="spec-tool-row">close_ticket → mark resolved (only after guide confirmed sent=true)</div>
+      </div>
+      <div class="spec-esc">
+        <strong>Escalation rules:</strong> Only escalate if gateway status="down" AND active_connections=0 (full outage). Degraded gateways → send guide, close ticket — do NOT escalate. Any isError=true → immediate escalation.
+      </div>
+      <div class="spec-hard-ceil">Hard rule: never modify network config, firewall rules, or gateway settings.</div>
+    </div>
+
+    <!-- SOFTWARE -->
+    <div class="specialist-card" style="grid-column: 1 / -1;">
+      <div class="specialist-name">SoftwareSpecialist</div>
+      <div class="isolated-badge">⚠ ISOLATED — does NOT inherit coordinator context</div>
+      <div class="spec-model">model: claude-sonnet-4-6 · max 20 iterations</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Activated when category="software" and issue matches KB-lookupable signals (install, crash, error code, update, freeze, not responding).</div>
+      <div class="spec-receives">Receives exactly:
+{
+  ticket_id:     str,
+  user_id:       str,
+  issue_summary: str
+}</div>
+      <div class="fields-label" style="margin-top:8px;">Tool sequence</div>
+      <div class="spec-tools">
+        <div class="spec-tool-row">search_knowledge_base → find matching KB articles by keyword; if total_found=0 → escalate immediately with reason="NO_KB_MATCH"</div>
+        <div class="spec-tool-row">check_software_entitlement → verify user is licensed for the software; if entitled=false → escalate with reason="NOT_ENTITLED"</div>
+        <div class="spec-tool-row">send_resolution → deliver KB article link + custom message via email</div>
+        <div class="spec-tool-row">close_ticket → mark resolved referencing KB article (only after send confirmed sent=true)</div>
+      </div>
+      <div class="spec-esc">
+        <strong>Escalation rules:</strong> No KB match → escalate. User not entitled → escalate. Any isError=true → escalate. Never install, uninstall, or configure software directly.
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ════════════════════════════════════════════════ SPECIALIST TOOLS -->
+  <div class="group-label" style="margin-top:16px;">PasswordResetSpecialist Tools</div>
+  <div class="two-col">
+
+    <div class="tool-card">
+      <div class="tool-name">lookup_account</div>
+      <div class="tool-purpose">Retrieve account status and lock metadata for a user. Returns account_status, last_login, failed_attempts, locked_since.</div>
+      <div class="fields-label">Required inputs</div>
+      <div class="field-row"><span class="field-name">user_id</span><span class="field-type">string</span><span class="field-req">*</span></div>
+      <div class="does-not"><strong>Does NOT:</strong> return passwords, security answers, or credentials of any kind. Returns ACCOUNT_FROZEN error if status is frozen or terminated — those accounts must not be touched by this specialist.</div>
+      <div class="error-shape">{ isError: true, reasonCode: "ACCOUNT_NOT_FOUND"|"ACCOUNT_FROZEN", guidance: "..." }</div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-name">verify_identity</div>
+      <div class="tool-purpose">Verify user identity via employee ID and security challenge answer. Both must match for verification to succeed. Sets internal verified flag used by reset_password gate.</div>
+      <div class="fields-label">Required inputs</div>
+      <div class="field-row"><span class="field-name">user_id</span><span class="field-type">string</span><span class="field-req">*</span></div>
+      <div class="field-row"><span class="field-name">employee_id</span><span class="field-type">string (e.g. "EMP-001")</span><span class="field-req">*</span></div>
+      <div class="field-row"><span class="field-name">security_answer</span><span class="field-type">string</span><span class="field-req">*</span></div>
+      <div class="does-not"><strong>Does NOT:</strong> bypass verification on a partial match. Does NOT log or store the security_answer in any persistent record. Must be called before reset_password — reset will fail without it.</div>
+      <div class="error-shape">Returns: { verified: bool, method_used: str, failure_reason?: str }</div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-name">reset_password</div>
+      <div class="tool-purpose">Generate temporary credentials and deliver them to the user via email or SMS. Unlocks the account and resets failed_attempts to 0. Expiry: 60 minutes.</div>
+      <div class="fields-label">Required inputs</div>
+      <div class="field-row"><span class="field-name">user_id</span><span class="field-type">string</span><span class="field-req">*</span></div>
+      <div class="field-row"><span class="field-name">delivery_method</span><span class="field-type">enum email|sms</span><span class="field-req">*</span></div>
+      <div class="does-not"><strong>Does NOT:</strong> reveal the temp password in the tool response — it is sent directly to the user's registered contact. Will return IDENTITY_NOT_VERIFIED if verify_identity hasn't succeeded. Will return ACCOUNT_NOT_ELIGIBLE for frozen/terminated accounts.</div>
+      <div class="error-shape">{ isError: true, reasonCode: "IDENTITY_NOT_VERIFIED"|"ACCOUNT_NOT_ELIGIBLE"|"ACCOUNT_NOT_FOUND", guidance: "..." }</div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-name">close_ticket <span style="color:var(--muted);font-weight:400;">(password_reset)</span></div>
+      <div class="tool-purpose">Mark ticket as resolved and write a resolution summary to the ticket record.</div>
+      <div class="fields-label">Required inputs</div>
+      <div class="field-row"><span class="field-name">ticket_id</span><span class="field-type">string</span><span class="field-req">*</span></div>
+      <div class="field-row"><span class="field-name">resolution_summary</span><span class="field-type">string</span><span class="field-req">*</span></div>
+      <div class="field-row"><span class="field-name">auto_resolved</span><span class="field-type">boolean</span><span class="field-req">*</span></div>
+      <div class="does-not"><strong>Does NOT:</strong> escalate or re-route — if something went wrong use the escalation signal instead of calling this tool. Call only after reset_password confirms success=true.</div>
+      <div class="error-shape">Returns: { closed: true, ticket_id: str, timestamp: "ISO8601" }</div>
+    </div>
+
+  </div>
+
+  <div class="group-label" style="margin-top:16px;">NetworkingSpecialist Tools</div>
+  <div class="two-col">
+
+    <div class="tool-card">
+      <div class="tool-name">check_vpn_status</div>
+      <div class="tool-purpose">Query current health of VPN gateways. Returns status (healthy/degraded/down), active_connections, latency_ms, last_checked per gateway. Optional filter by gateway_id.</div>
+      <div class="fields-label">Optional inputs</div>
+      <div class="field-row"><span class="field-name">gateway_id</span><span class="field-type">string (omit for all gateways)</span></div>
+      <div class="does-not"><strong>Does NOT:</strong> restart or modify gateways. Does NOT take any write action. Does NOT return user-specific connectivity data — use get_user_connectivity_diagnostics for that.</div>
+      <div class="error-shape">{ isError: true, reasonCode: "GATEWAY_NOT_FOUND", guidance: "..." }</div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-name">get_user_connectivity_diagnostics</div>
+      <div class="tool-purpose">Retrieve VPN diagnostics for a specific user: last_vpn_auth, last_seen_ip, vpn_client_version, recent_auth_failures, assigned_gateway, client_os.</div>
+      <div class="fields-label">Required inputs</div>
+      <div class="field-row"><span class="field-name">user_id</span><span class="field-type">string</span><span class="field-req">*</span></div>
+      <div class="does-not"><strong>Does NOT:</strong> return passwords, credentials, or PII beyond directory-approved fields. Does NOT show other users' data.</div>
+      <div class="error-shape">{ isError: true, reasonCode: "USER_DIAGNOSTICS_NOT_FOUND", guidance: "..." }</div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-name">push_remediation_guide</div>
+      <div class="tool-purpose">Send targeted troubleshooting guide to the user via email. issue_type selects the guide template and personalises it with user diagnostic data.</div>
+      <div class="fields-label">Required inputs</div>
+      <div class="field-row"><span class="field-name">user_id</span><span class="field-type">string</span><span class="field-req">*</span></div>
+      <div class="field-row"><span class="field-name">issue_type</span><span class="field-type">enum vpn_gateway_degraded | vpn_client_outdated | vpn_auth_failures | vpn_general</span><span class="field-req">*</span></div>
+      <div class="does-not"><strong>Does NOT:</strong> modify network configuration, firewall rules, or VPN gateways. Does NOT send to unregistered users. Does NOT resolve the ticket — call close_ticket separately after this.</div>
+      <div class="error-shape">{ isError: true, reasonCode: "UNKNOWN_ISSUE_TYPE", guidance: "..." }</div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-name">close_ticket <span style="color:var(--muted);font-weight:400;">(networking)</span></div>
+      <div class="tool-purpose">Mark ticket as resolved and write resolution summary. Call only after push_remediation_guide returns sent=true.</div>
+      <div class="fields-label">Required inputs</div>
+      <div class="field-row"><span class="field-name">ticket_id</span><span class="field-type">string</span><span class="field-req">*</span></div>
+      <div class="field-row"><span class="field-name">resolution_summary</span><span class="field-type">string</span><span class="field-req">*</span></div>
+      <div class="field-row"><span class="field-name">auto_resolved</span><span class="field-type">boolean</span><span class="field-req">*</span></div>
+      <div class="does-not"><strong>Does NOT:</strong> escalate or re-route. If something went wrong use the escalation signal instead of calling this tool.</div>
+      <div class="error-shape">Returns: { closed: true, ticket_id: str, timestamp: "ISO8601" }</div>
+    </div>
+
+  </div>
+
+  <div class="group-label" style="margin-top:16px;">SoftwareSpecialist Tools</div>
+  <div class="two-col">
+
+    <div class="tool-card">
+      <div class="tool-name">search_knowledge_base</div>
+      <div class="tool-purpose">Search IT knowledge base for articles matching a plain-language query. Returns matching articles with IDs, titles, summaries, and URLs. Optional software_name filter.</div>
+      <div class="fields-label">Required / optional inputs</div>
+      <div class="field-row"><span class="field-name">query</span><span class="field-type">string (plain-language description)</span><span class="field-req">*</span></div>
+      <div class="field-row"><span class="field-name">software_name</span><span class="field-type">string (e.g. "outlook", "general")</span></div>
+      <div class="does-not"><strong>Does NOT:</strong> install, configure, or modify any software. Does NOT guarantee a match — check if results list is empty before proceeding.</div>
+      <div class="error-shape">Returns: { query, results: [...], total_found: int } or { isError: true, reasonCode: "EMPTY_QUERY" }</div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-name">check_software_entitlement</div>
+      <div class="tool-purpose">Verify whether a user is licensed and entitled to use a specific software application. Returns entitled=true/false and department_tier.</div>
+      <div class="fields-label">Required inputs</div>
+      <div class="field-row"><span class="field-name">user_id</span><span class="field-type">string</span><span class="field-req">*</span></div>
+      <div class="field-row"><span class="field-name">software_name</span><span class="field-type">string (lowercase, e.g. "outlook")</span><span class="field-req">*</span></div>
+      <div class="does-not"><strong>Does NOT:</strong> grant or revoke licenses. Does NOT access financial or payroll records. If entitled=false, escalate to tier1 — do not auto-resolve.</div>
+      <div class="error-shape">{ isError: true, reasonCode: "USER_NOT_FOUND"|"ACCOUNT_SUSPENDED", guidance: "..." }</div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-name">send_resolution</div>
+      <div class="tool-purpose">Deliver a KB article link and optional custom message to the user's registered email channel. Use after KB search returns a match and entitlement is confirmed.</div>
+      <div class="fields-label">Required / optional inputs</div>
+      <div class="field-row"><span class="field-name">user_id</span><span class="field-type">string</span><span class="field-req">*</span></div>
+      <div class="field-row"><span class="field-name">kb_article_id</span><span class="field-type">string (e.g. "KB-001")</span><span class="field-req">*</span></div>
+      <div class="field-row"><span class="field-name">custom_message</span><span class="field-type">string (optional context)</span></div>
+      <div class="does-not"><strong>Does NOT:</strong> directly install or uninstall software. Does NOT send if no article_id is provided. Does NOT resolve the ticket — call close_ticket separately after this.</div>
+      <div class="error-shape">{ isError: true, reasonCode: "ARTICLE_NOT_FOUND", guidance: "..." }</div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-name">close_ticket <span style="color:var(--muted);font-weight:400;">(software)</span></div>
+      <div class="tool-purpose">Mark ticket as resolved with resolution summary referencing the KB article used. Call only after send_resolution returns sent=true.</div>
+      <div class="fields-label">Required inputs</div>
+      <div class="field-row"><span class="field-name">ticket_id</span><span class="field-type">string</span><span class="field-req">*</span></div>
+      <div class="field-row"><span class="field-name">resolution_summary</span><span class="field-type">string (include KB article referenced)</span><span class="field-req">*</span></div>
+      <div class="field-row"><span class="field-name">auto_resolved</span><span class="field-type">boolean</span><span class="field-req">*</span></div>
+      <div class="does-not"><strong>Does NOT:</strong> escalate or re-route — if something went wrong use the escalation signal instead of calling this tool.</div>
+      <div class="error-shape">Returns: { closed: true, ticket_id: str, timestamp: "ISO8601" }</div>
+    </div>
+
+  </div>
+
+  <div class="arrow">↓</div>
+
+  <!-- ═══════════════════════════════════════════════════════════ HOOKS -->
+  <div class="group-label">Hooks / Guardrails</div>
+  <div class="hook-card">
+    <div class="hook-title">PreToolUse Hook — check_pre_tool_use(tool_name, tool_input)</div>
+    <div class="hook-desc">Synchronous, deterministic gate. Runs before every tool call in both the coordinator and all specialists. Does NOT call the LLM. Cannot be overridden by the agent. Returns (True, "") if allowed, or (False, deny_message) which is sent back as isError:true, reasonCode:"HARD_STOP".</div>
+
+    <div class="hard-stop-row">
+      <div>
+        <div class="hs-label">Hard Stop 1 — Forbidden Tool Prefixes</div>
+        <div class="hs-condition">tool_name.startswith(("payroll_", "finance_"))</div>
+      </div>
+      <div>
+        <div class="hs-label">Reason</div>
+        <div class="hs-reason">Payroll and financial system endpoints are outside the agent's authorised scope. Escalate to tier2.</div>
+      </div>
+    </div>
+
+    <div class="hard-stop-row">
+      <div>
+        <div class="hs-label">Hard Stop 2 — Frozen/Terminated Account Reset</div>
+        <div class="hs-condition">tool_name == "reset_password" AND<br>_ACCOUNT_STORE[user_id]["account_status"] IN ("frozen", "terminated")</div>
+      </div>
+      <div>
+        <div class="hs-label">Reason</div>
+        <div class="hs-reason">Hard stop: reset_password blocked for user_id='...' (account_status='frozen'/'terminated'). Route to Security team.</div>
+      </div>
+    </div>
+
+    <div class="hard-stop-row">
+      <div>
+        <div class="hs-label">Hard Stop 3 — SSN in Non-PII Field</div>
+        <div class="hs-condition">Any tool input field (outside _PII_DESIGNATED_FIELDS)<br>matches regex: <code style="color:var(--red);">\b\d{3}-\d{2}-\d{4}\b</code></div>
+      </div>
+      <div>
+        <div class="hs-label">Reason</div>
+        <div class="hs-reason">Hard stop: SSN pattern detected in field '...' of tool '...'. This call has been blocked and flagged for security review. Do not retry with PII in this field.</div>
+      </div>
+    </div>
+
+    <div class="hard-stop-row">
+      <div>
+        <div class="hs-label">Hard Stop 4 — Prompt Injection in route_ticket</div>
+        <div class="hs-condition">tool_name == "route_ticket" AND body/notes<br>matches any exfiltration pattern (see below)</div>
+      </div>
+      <div>
+        <div class="hs-label">Reason</div>
+        <div class="hs-reason">Hard stop: prompt-injection pattern detected in ticket body. Ticket has been hard-routed to the security queue for manual review. Do not process further.</div>
+      </div>
+    </div>
+
+    <div style="margin-top:12px;">
+      <div class="fields-label">Exfiltration patterns (verbatim from pre_tool_use.py)</div>
+      <div class="exfil-list">
+        <div class="exfil-item">ignore\s+(all\s+)?(prior|previous|above)\s+instructions  (re.I)</div>
+        <div class="exfil-item">route\s+(this\s+)?to\s+(the\s+)?ceo  (re.I)</div>
+        <div class="exfil-item">disregard\s+(your\s+)?(system\s+)?prompt  (re.I)</div>
+        <div class="exfil-item">you\s+are\s+now\s+a  (re.I)</div>
+        <div class="exfil-item">new\s+instructions?:  (re.I)</div>
+        <div class="exfil-item">print\s+(your\s+)?system\s+prompt  (re.I)</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">↓</div>
+
+  <!-- ═══════════════════════════════════════════════════════ SCHEMAS -->
+  <div class="group-label">Data Schemas (Pydantic)</div>
+  <div class="two-col">
+
+    <div class="schema-card">
+      <div class="schema-name">TicketClassification</div>
+      <table>
+        <tr><th>Field</th><th>Type</th><th>Constraints / Notes</th></tr>
+        <tr><td class="td-field">priority</td><td class="td-type">Literal["P1","P2","P3","P4"]</td><td class="td-note">required</td></tr>
+        <tr><td class="td-field">category</td><td class="td-type">Literal["password_reset","network","hardware","software","security_incident","other"]</td><td class="td-note">required</td></tr>
+        <tr><td class="td-field">confidence</td><td class="td-type">float</td><td class="td-note">ge=0.0, le=1.0; rounded to 4 dp by validator</td></tr>
+        <tr><td class="td-field">reasoning</td><td class="td-type">str</td><td class="td-note">min_length=10</td></tr>
+        <tr><td class="td-field">auto_resolvable</td><td class="td-type">bool</td><td class="td-note">required</td></tr>
+      </table>
+      <div class="validator-note">@field_validator("confidence"): round(v, 4)</div>
+    </div>
+
+    <div class="schema-card">
+      <div class="schema-name">RouteDecision</div>
+      <table>
+        <tr><th>Field</th><th>Type</th><th>Constraints / Notes</th></tr>
+        <tr><td class="td-field">queue</td><td class="td-type">Literal["tier1","tier2","networking","security","hardware"]</td><td class="td-note">required</td></tr>
+        <tr><td class="td-field">escalate</td><td class="td-type">bool</td><td class="td-note">required</td></tr>
+        <tr><td class="td-field">escalation_reason</td><td class="td-type">Optional[str]</td><td class="td-note">required when escalate=True (enforced by validator)</td></tr>
+      </table>
+      <div class="validator-note">@field_validator("escalation_reason"): raises ValueError if escalate=True and reason is None</div>
+    </div>
+
+    <div class="schema-card">
+      <div class="schema-name">CoordinatorResult</div>
+      <table>
+        <tr><th>Field</th><th>Type</th><th>Notes</th></tr>
+        <tr><td class="td-field">ticket_id</td><td class="td-type">str</td><td class="td-note"></td></tr>
+        <tr><td class="td-field">priority</td><td class="td-type">str</td><td class="td-note">P1–P4</td></tr>
+        <tr><td class="td-field">category</td><td class="td-type">str</td><td class="td-note"></td></tr>
+        <tr><td class="td-field">confidence</td><td class="td-type">float</td><td class="td-note"></td></tr>
+        <tr><td class="td-field">queue</td><td class="td-type">Optional[str]</td><td class="td-note">null on auto-resolve</td></tr>
+        <tr><td class="td-field">auto_resolved</td><td class="td-type">bool</td><td class="td-note"></td></tr>
+        <tr><td class="td-field">escalated</td><td class="td-type">bool</td><td class="td-note"></td></tr>
+        <tr><td class="td-field">escalation_reason</td><td class="td-type">Optional[str]</td><td class="td-note"></td></tr>
+        <tr><td class="td-field">retry_count</td><td class="td-type">int</td><td class="td-note">0–3</td></tr>
+        <tr><td class="td-field">error_types</td><td class="td-type">list[str]</td><td class="td-note">Pydantic ValidationError messages</td></tr>
+        <tr><td class="td-field">reasoning_chain</td><td class="td-type">str</td><td class="td-note">JSON string of all step dicts</td></tr>
+      </table>
+    </div>
+
+    <div class="schema-card">
+      <div class="schema-name">SpecialistResult</div>
+      <table>
+        <tr><th>Field</th><th>Type</th><th>Notes</th></tr>
+        <tr><td class="td-field">ticket_id</td><td class="td-type">str</td><td class="td-note"></td></tr>
+        <tr><td class="td-field">user_id</td><td class="td-type">str</td><td class="td-note"></td></tr>
+        <tr><td class="td-field">success</td><td class="td-type">bool</td><td class="td-note">true only if not escalated</td></tr>
+        <tr><td class="td-field">escalate</td><td class="td-type">bool</td><td class="td-note">triggers coordinator re-route to tier2</td></tr>
+        <tr><td class="td-field">escalation_reason</td><td class="td-type">Optional[str]</td><td class="td-note">reasonCode + guidance from failed tool</td></tr>
+        <tr><td class="td-field">resolution_summary</td><td class="td-type">Optional[str]</td><td class="td-note">final text block from specialist</td></tr>
+      </table>
+    </div>
+
+    <div class="schema-card">
+      <div class="schema-name">ToolError</div>
+      <table>
+        <tr><th>Field</th><th>Type</th><th>Notes</th></tr>
+        <tr><td class="td-field">isError</td><td class="td-type">bool</td><td class="td-note">always True</td></tr>
+        <tr><td class="td-field">reasonCode</td><td class="td-type">str</td><td class="td-note">machine-readable code (e.g. "ACCOUNT_FROZEN")</td></tr>
+        <tr><td class="td-field">guidance</td><td class="td-type">str</td><td class="td-note">human-readable recovery instruction for the agent</td></tr>
+      </table>
+    </div>
+
+  </div>
+
+  <div class="arrow">↓</div>
+
+  <!-- ══════════════════════════════════════════════════════ OUTPUT -->
+  <div class="card green">
+    <h2>Output / Side Effects</h2>
+    <div class="output-grid">
+      <div class="output-path">
+        <h4>Path A — Auto-Resolved</h4>
+        <p>Specialist executes domain action (password reset / VPN guide / KB article delivery), closes ticket, marks auto_resolved=true. Coordinator writes full reasoning chain to ticket record via update_ticket. JSON result returned to CLI caller with auto_resolved=true.</p>
+      </div>
+      <div class="output-path">
+        <h4>Path B — Routed to Queue</h4>
+        <p>Coordinator calls route_ticket assigning to tier1/tier2/networking/security/hardware with calculated SLA timestamp (min of priority SLA and queue SLA). Optional acknowledgement notification sent to user. Audit log written. JSON result with queue and escalated flag returned.</p>
+      </div>
+      <div class="output-path">
+        <h4>Path C — Escalated</h4>
+        <p>Triggered by: P1 priority, low confidence, security_incident, frozen/terminated account, VIP+P2, schema validation exhausted after 3 retries, or specialist hard stop. Routes to tier2 (or security queue). Full reasoning chain with retry_count and error_types preserved in audit log.</p>
+      </div>
+    </div>
+    <div style="margin-top:14px;font-size:13px;color:var(--muted);">
+      <strong style="color:var(--text);">Governance:</strong> Every decision path writes a structured reasoning chain to the ticket store via <code>update_ticket</code>. The chain is replayable — given only the log entry a human reviewer can reconstruct exactly what the agent saw and why it decided what it did. Retry count and error types are included in every entry. Auto-resolve scope is defined by the Mandate; any expansion requires a new mandate version and sign-off.
+    </div>
+    <div style="margin-top:10px;font-size:13px;color:var(--muted);">
+      <strong style="color:var(--text);">Never automated (by mandate):</strong> bulk account operations, hardware replacements, security policy changes, onboarding/offboarding, production database actions, any category where precision falls below 95% in the eval harness.
+    </div>
+  </div>
+
+  <div class="arrow">↓</div>
+
+  <!-- ════════════════════════════════════════════════════════ LEGEND -->
+  <div class="card" style="border-left:4px solid var(--border);">
+    <h2>Legend — Colour Coding</h2>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-swatch" style="background:var(--blue);"></div><span>Blue — External systems / Entry point</span></div>
+      <div class="legend-item"><div class="legend-swatch" style="background:var(--purple);"></div><span>Purple — Coordinator agent</span></div>
+      <div class="legend-item"><div class="legend-swatch" style="background:var(--red);"></div><span>Red — Specialist subagents (⚠ ISOLATED)</span></div>
+      <div class="legend-item"><div class="legend-swatch" style="background:var(--orange);"></div><span>Orange — Tools</span></div>
+      <div class="legend-item"><div class="legend-swatch" style="background:var(--yellow);"></div><span>Yellow — Hooks / Guardrails (PreToolUse hard stops)</span></div>
+      <div class="legend-item"><div class="legend-swatch" style="background:var(--green);"></div><span>Green — Output / Success paths</span></div>
+      <div class="legend-item"><div class="legend-swatch" style="background:var(--teal);"></div><span>Teal — Schemas / Pydantic models</span></div>
+    </div>
+    <div style="margin-top:14px;font-size:12px;color:var(--muted);">
+      <strong style="color:var(--text);">Model:</strong> <code>claude-sonnet-4-6</code> (all agents) &nbsp;|&nbsp;
+      <strong style="color:var(--text);">Queues:</strong> tier1 (4h SLA) · tier2 (8h SLA) · networking (4h SLA) · security (2h SLA) · hardware (24h SLA) &nbsp;|&nbsp;
+      <strong style="color:var(--text);">Auth:</strong> <code>ANTHROPIC_API_KEY</code> env var &nbsp;|&nbsp;
+      <strong style="color:var(--text);">Tool count cap:</strong> 4 per agent (reliability degrades beyond 4–5)
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
