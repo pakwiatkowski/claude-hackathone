@@ -87,6 +87,18 @@ _PRIORITY_SIGNALS: dict[str, list[str]] = {
     "P4": ["low priority", "when you get a chance", "no rush", "whenever"],
 }
 
+# Signals that make a network ticket auto-resolvable (VPN user-side issues)
+_NETWORK_AUTO_RESOLVE_SIGNALS: list[str] = [
+    "vpn", "is vpn down", "can't connect vpn", "vpn not working",
+    "vpn not connecting", "vpn slow", "cannot connect to vpn",
+]
+
+# Signals that make a software ticket auto-resolvable (KB-lookupable issues)
+_SOFTWARE_AUTO_RESOLVE_SIGNALS: list[str] = [
+    "install", "how to", "error code", "crash", "not opening",
+    "update", "freeze", "not responding", "won't open", "keeps crashing",
+]
+
 
 def _classify_body(body: str) -> tuple[str, str, float, bool]:
     """Returns (priority, category, confidence, auto_resolvable)."""
@@ -111,8 +123,20 @@ def _classify_body(body: str) -> tuple[str, str, float, bool]:
     # Confidence: rough heuristic based on signal strength
     confidence = min(0.5 + cat_score * 0.15, 0.95) if cat_score > 0 else 0.45
 
-    # Auto-resolvable only for password_reset (current scope per mandate)
-    auto_resolvable = category == "password_reset" and priority not in ("P1",)
+    # Auto-resolvable per mandate:
+    # - password_reset: always (excluding P1)
+    # - network: only for VPN user-side issues (excluding P1)
+    # - software: only when issue matches a KB-lookupable pattern (excluding P1)
+    if priority == "P1":
+        auto_resolvable = False
+    elif category == "password_reset":
+        auto_resolvable = True
+    elif category == "network":
+        auto_resolvable = any(s in body_lower for s in _NETWORK_AUTO_RESOLVE_SIGNALS)
+    elif category == "software":
+        auto_resolvable = any(s in body_lower for s in _SOFTWARE_AUTO_RESOLVE_SIGNALS)
+    else:
+        auto_resolvable = False
 
     return priority, category, confidence, auto_resolvable
 

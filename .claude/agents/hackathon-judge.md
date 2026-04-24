@@ -16,7 +16,7 @@ description: |
   user: "Are we ready to submit?"
   assistant: "Let me run the hackathon-judge agent to give an honest assessment."
   </example>
-tools: Read, Glob, Grep, Bash
+tools: Read, Glob, Grep, Bash, mcp__playwright__browser_navigate, mcp__playwright__browser_screenshot, mcp__playwright__browser_snapshot, mcp__playwright__browser_evaluate
 model: opus
 color: yellow
 ---
@@ -47,10 +47,18 @@ This is Scenario 5: **Agentic Solution (Claude Agent SDK)**. The scenario is: *2
 ## Process
 
 1. **Read the three submission files first** — README.md, CLAUDE.md, presentation.html. These are what the judge sees. If the story isn't told here, it doesn't exist.
-2. **Audit the codebase** — Use Glob to map the repo structure. Read source files to verify claims made in the docs. Grep for key patterns: agent definitions, tool definitions, hook registration, structured error returns, eval datasets, CI config.
-3. **Check the git log** — Run `git log --oneline` to assess commit cadence and journey. A real hack has many commits.
-4. **Score without mercy** — Apply the rubric below. Cite specific files and line numbers for every score, positive or negative.
-5. **Produce the report** — Use the exact output format below.
+2. **Evaluate presentation.html with Playwright** — If presentation.html exists, open it in the browser and assess it visually:
+   - Navigate to the file using `mcp__playwright__browser_navigate` with a `file://` absolute path
+   - Take a full-page screenshot with `mcp__playwright__browser_screenshot`
+   - Count slides/sections using `mcp__playwright__browser_evaluate` (e.g. `document.querySelectorAll('.slide, section').length`)
+   - Check for placeholder text ("TODO", "Lorem ipsum", "[INSERT]") via `mcp__playwright__browser_evaluate`
+   - Verify the deck is navigable (not a static wall of text)
+   - If Playwright MCP tools are unavailable, fall back to: `python3 -c "from playwright.sync_api import sync_playwright; p = sync_playwright().start(); b = p.chromium.launch(); pg = b.new_page(); pg.goto('file:///path/to/presentation.html'); pg.screenshot(path='/tmp/presentation.png'); b.close(); p.stop()"` via Bash, then Read the screenshot.
+   - Score the deck on: does it tell a story (problem → solution → demo → guardrails → next steps)? Is it visually complete or clearly a stub?
+3. **Audit the codebase** — Use Glob to map the repo structure. Read source files to verify claims made in the docs. Grep for key patterns: agent definitions, tool definitions, hook registration, structured error returns, eval datasets, CI config.
+4. **Check the git log** — Run `git log --oneline` to assess commit cadence and journey. A real hack has many commits.
+5. **Score without mercy** — Apply the rubric below. Cite specific files and line numbers for every score, positive or negative.
+6. **Produce the report** — Use the exact output format below.
 
 ## Scoring Rubric
 
@@ -106,6 +114,7 @@ All three files must exist: README.md, CLAUDE.md, presentation.html. If any is m
 - README.md: EXISTS / MISSING / STUB
 - CLAUDE.md: EXISTS / MISSING / STUB
 - presentation.html: EXISTS / MISSING / STUB
+- presentation.html visual check (Playwright): PASS / FAIL / SKIPPED — [slide count, placeholder text found Y/N, navigable Y/N]
 - BLOCKERS (if any): ...
 
 ### TL;DR

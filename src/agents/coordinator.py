@@ -27,10 +27,20 @@ from src.tools.coordinator_tools import (
     COORDINATOR_TOOL_SCHEMAS,
 )
 
-# Lazy import to avoid circular dependency
-def _get_specialist():
+# Lazy imports to avoid circular dependencies
+def _get_password_reset_specialist():
     from src.agents.specialists.password_reset import run_password_reset_specialist
     return run_password_reset_specialist
+
+
+def _get_networking_specialist():
+    from src.agents.specialists.networking import run_networking_specialist
+    return run_networking_specialist
+
+
+def _get_software_specialist():
+    from src.agents.specialists.software import run_software_specialist
+    return run_software_specialist
 
 
 COORDINATOR_SYSTEM_PROMPT = """\
@@ -58,11 +68,11 @@ For every ticket you receive, you must:
      - auto_resolvable = true
      - confidence >= 0.70
      - priority != "P1"
-     - category = "password_reset"
+     - category IN ["password_reset", "network", "software"]
      - account_status != "frozen" and account_status != "terminated"
      - vip_flag = false OR priority in ["P3", "P4"]
    If all conditions met → respond with JSON:
-     {"action": "auto_resolve", "ticket_id": "...", "user_id": "...", "issue_summary": "..."}
+     {"action": "auto_resolve", "ticket_id": "...", "user_id": "...", "issue_summary": "...", "category": "..."}
 
    ROUTE path — any condition above is false → call route_ticket, then respond with JSON:
      {"action": "routed", "queue": "...", "escalated": true|false, "escalation_reason": "..."|null}
@@ -150,12 +160,20 @@ def run_coordinator(ticket: dict[str, Any]) -> dict[str, Any]:
                         action = decision.get("action")
 
                         if action == "auto_resolve":
-                            run_specialist = _get_specialist()
-                            specialist_result = run_specialist(
+                            category = decision.get("category", final_result["category"])
+                            specialist_kwargs = dict(
                                 ticket_id=decision.get("ticket_id", ticket_id),
                                 user_id=decision.get("user_id", ticket.get("user_id", "")),
                                 issue_summary=decision.get("issue_summary", ticket.get("body", "")),
                             )
+                            if category == "network":
+                                specialist_result = _get_networking_specialist()(**specialist_kwargs)
+                            elif category == "software":
+                                specialist_result = _get_software_specialist()(**specialist_kwargs)
+                            else:
+                                # Default: password_reset (and any future categories added here)
+                                specialist_result = _get_password_reset_specialist()(**specialist_kwargs)
+
                             final_result["auto_resolved"] = specialist_result.get("success", False)
                             final_result["escalated"] = specialist_result.get("escalate", False)
                             final_result["escalation_reason"] = specialist_result.get("escalation_reason")
