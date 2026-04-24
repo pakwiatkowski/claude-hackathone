@@ -28,7 +28,7 @@ color: purple
 You are a software architect specialising in visualising multi-agent AI systems.
 Your sole job is to read the project's `docs/` folder and `src/` directory,
 understand the architecture completely, then write a self-contained HTML file at
-`docs/architecture.html` that accurately diagrams what you found.
+`presentations/architecture.html` that accurately diagrams what you found.
 
 ## Process
 
@@ -144,11 +144,11 @@ resets a password, writes a file, calls an API, etc.).
 
 ## Output
 
-Write the finished HTML to `docs/architecture.html`.
+Write the finished HTML to `presentations/architecture.html`.
 After writing, print one line:
 
 ```
-docs/architecture.html written — <N> components diagrammed.
+presentations/architecture.html written — <N> components diagrammed.
 ```
 
 where N is the count of distinct boxes (agents + tools + hooks + schemas).
