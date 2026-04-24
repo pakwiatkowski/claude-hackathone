@@ -1,0 +1,28 @@
+{
+  "sha": "abc1234def5678",
+  "message": "feat: add JWT authentication middleware",
+  "author": "Jane Dev",
+  "timestamp": "2026-04-24T10:00:00Z",
+  "repo": "owner/repo",
+  "diff": {
+    "sha": "abc1234def5678",
+    "message": "feat: add JWT authentication middleware",
+    "author": "Jane Dev",
+    "files": [
+      {
+        "filename": "src/middleware/auth.py",
+        "status": "added",
+        "additions": 42,
+        "deletions": 0,
+        "patch": "@@ -0,0 +1,42 @@\n+import jwt\n+from functools import wraps\n+\n+def require_auth(f):\n+    @wraps(f)\n+    def decorated(*args, **kwargs):\n+        token = request.headers.get('Authorization', '').removeprefix('Bearer ')\n+        if not token:\n+            return {'error': 'Missing token'}, 401\n+        try:\n+            payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])\n+        except jwt.ExpiredSignatureError:\n+            return {'error': 'Token expired'}, 401\n+        return f(*args, **kwargs)\n+    return decorated"
+      },
+      {
+        "filename": "tests/test_auth.py",
+        "status": "added",
+        "additions": 18,
+        "deletions": 0,
+        "patch": "@@ -0,0 +1,18 @@\n+import pytest\n+from src.middleware.auth import require_auth\n+\n+def test_missing_token(client):\n+    resp = client.get('/protected')\n+    assert resp.status_code == 401\n+\n+def test_expired_token(client, expired_token):\n+    resp = client.get('/protected', headers={'Authorization': f'Bearer {expired_token}'})\n+    assert resp.status_code == 401"
+      }
+    ]
+  }
+}

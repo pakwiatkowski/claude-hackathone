@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Commit Presentation Agent — Architecture</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  font-size: 13px;
+  background: #0d1117;
+  color: #e6edf3;
+  min-height: 100vh;
+  padding: 48px 24px;
+}
+
+.diagram {
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+/* ─── Header ─────────────────────────────────────────────── */
+.header {
+  text-align: center;
+  margin-bottom: 44px;
+}
+.header h1 {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+  color: #e6edf3;
+}
+.header p {
+  margin-top: 6px;
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  font-size: 11px;
+  color: #484f58;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+/* ─── Base card ───────────────────────────────────────────── */
+.card {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 14px 18px;
+}
+.card-title {
+  font-weight: 600;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.card-sub {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  color: #6e7681;
+  margin-bottom: 10px;
+}
+.card-body {
+  font-size: 12px;
+  color: #c9d1d9;
+  line-height: 1.65;
+}
+
+/* ─── Tag pills ───────────────────────────────────────────── */
+.tag {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 12px;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+.tag-blue   { background: #1f3c70; color: #58a6ff; }
+.tag-green  { background: #1a3128; color: #3fb950; }
+.tag-purple { background: #2d2066; color: #bc8cff; }
+.tag-orange { background: #3d2000; color: #ffa657; }
+.tag-red    { background: #3d0c09; color: #ff7b72; }
+.tag-teal   { background: #0d2117; color: #39d353; }
+
+/* ─── Card color accents ─────────────────────────────────── */
+.card.c-github      { border-left: 3px solid #58a6ff; }
+.card.c-actions     { border-left: 3px solid #3fb950; }
+.card.c-entry       { border-left: 3px solid #bc8cff; }
+.card.c-coordinator { border-left: 3px solid #6e40c9; background: #1c1535; border-color: #6e40c9; }
+.card.c-tool        { border-left: 3px solid #ffa657; }
+.card.c-api         { border-left: 3px solid #58a6ff; background: #0d1b2e; }
+.card.c-subagent    { border-left: 3px solid #ff7b72; }
+.card.c-output      { border-left: 3px solid #3fb950; background: #0d1f17; }
+
+/* ─── Arrows ─────────────────────────────────────────────── */
+.arrow-down {
+  text-align: center;
+  padding: 6px 0;
+  color: #30363d;
+  font-size: 22px;
+  line-height: 1;
+  user-select: none;
+}
+.arrow-right {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  flex-shrink: 0;
+  color: #30363d;
+  font-size: 22px;
+  user-select: none;
+}
+
+/* ─── Trigger chain row ──────────────────────────────────── */
+.trigger-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  justify-content: center;
+}
+.trigger-row .card {
+  flex: 1;
+  max-width: 280px;
+  text-align: center;
+}
+.trigger-row .card-body {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  color: #6e7681;
+  line-height: 1.7;
+}
+
+/* ─── Agent loop box ─────────────────────────────────────── */
+.loop-box {
+  background: #21262d;
+  border: 1px dashed #484f58;
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin-top: 12px;
+}
+.loop-box-title {
+  font-size: 10px;
+  font-family: ui-monospace, monospace;
+  color: #484f58;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
+}
+.loop-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  padding: 3px 0;
+  line-height: 1.5;
+}
+.loop-cond   { color: #ffa657; font-weight: 600; }
+.loop-sep    { color: #484f58; }
+.loop-action { color: #3fb950; }
+
+/* ─── Escalation banner ──────────────────────────────────── */
+.escalation {
+  margin-top: 14px;
+  padding: 9px 12px;
+  background: #271700;
+  border: 1px solid #553800;
+  border-radius: 6px;
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+  color: #ffa657;
+  line-height: 1.6;
+}
+.escalation strong { color: #ff7b72; }
+
+/* ─── Two-column tool area ───────────────────────────────── */
+.two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+.tool-col {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ─── Tool list ──────────────────────────────────────────── */
+.tool-list {
+  list-style: none;
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.tool-list li {
+  display: grid;
+  grid-template-columns: 170px 1fr;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid #21262d;
+  align-items: start;
+}
+.tool-list li:last-child { border-bottom: none; }
+.tool-name {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: #ffa657;
+  font-weight: 600;
+  padding-top: 1px;
+}
+.tool-desc {
+  font-size: 11px;
+  color: #8b949e;
+  line-height: 1.5;
+}
+
+/* ─── Subagent cards ─────────────────────────────────────── */
+.subagent-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.schema-block {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  line-height: 1.9;
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: #0d1117;
+  border-radius: 4px;
+  color: #8b949e;
+}
+.schema-key  { color: #79c0ff; }
+.schema-type { color: #ff7b72; }
+.schema-val  { color: #a5d6ff; }
+.isolation-badge {
+  display: inline-block;
+  margin-top: 10px;
+  font-size: 10px;
+  font-family: ui-monospace, monospace;
+  padding: 3px 8px;
+  background: #3d0c09;
+  color: #ff7b72;
+  border-radius: 4px;
+  border: 1px solid #6d1a13;
+}
+
+/* ─── API endpoint list ──────────────────────────────────── */
+.api-endpoints {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.api-endpoint {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  color: #58a6ff;
+  padding: 4px 8px;
+  background: #111d2e;
+  border-radius: 4px;
+  border: 1px solid #1e3a5f;
+}
+
+/* ─── Output steps ───────────────────────────────────────── */
+.output-steps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.output-step {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  padding: 5px 11px;
+  background: #1a3128;
+  color: #3fb950;
+  border-radius: 5px;
+  border: 1px solid #1f4b37;
+}
+.output-arrow { color: #484f58; font-size: 16px; }
+
+/* ─── Section label ──────────────────────────────────────── */
+.section-label {
+  text-align: center;
+  font-size: 9px;
+  font-family: ui-monospace, monospace;
+  color: #30363d;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin: 2px 0;
+}
+
+/* ─── Model badge ────────────────────────────────────────── */
+.model-badge {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  padding: 2px 7px;
+  background: #2d2066;
+  color: #bc8cff;
+  border-radius: 4px;
+  border: 1px solid #4a3490;
+}
+
+/* ─── Legend ─────────────────────────────────────────────── */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 24px;
+  justify-content: center;
+  margin-top: 44px;
+  padding-top: 20px;
+  border-top: 1px solid #21262d;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  color: #6e7681;
+}
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+/* ─── Responsive ─────────────────────────────────────────── */
+@media (max-width: 680px) {
+  .two-col { grid-template-columns: 1fr; }
+  .trigger-row { flex-direction: column; align-items: stretch; }
+  .trigger-row .card { max-width: 100%; }
+  .arrow-right { transform: rotate(90deg); width: 100%; padding: 4px 0; }
+  .tool-list li { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="diagram">
+
+  <!-- ── Header ─────────────────────────────────────────── -->
+  <div class="header">
+    <h1>Commit Presentation Agent</h1>
+    <p>Architecture · Claude Agent SDK · Python 3.12 · Coordinator + Specialist Subagents</p>
+  </div>
+
+  <!-- ── 1. Trigger chain ───────────────────────────────── -->
+  <div class="trigger-row">
+    <div class="card c-github">
+      <div class="card-title"><span class="tag tag-blue">trigger</span> GitHub Push</div>
+      <div class="card-body">Any branch<br><code>on: push</code></div>
+    </div>
+    <div class="arrow-right">→</div>
+    <div class="card c-actions">
+      <div class="card-title"><span class="tag tag-green">CI</span> GitHub Actions</div>
+      <div class="card-body">
+        COMMIT_SHA<br>
+        GITHUB_TOKEN<br>
+        COMMIT_MESSAGE<br>
+        GITHUB_REPOSITORY
+      </div>
+    </div>
+    <div class="arrow-right">→</div>
+    <div class="card c-entry">
+      <div class="card-title"><span class="tag tag-purple">entry</span> src/main.py</div>
+      <div class="card-body">
+        Reads env vars<br>
+        Creates Anthropic client<br>
+        Calls <code>coordinator.run()</code>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-down">↓</div>
+  <div class="section-label">coordinator · master agent loop</div>
+
+  <!-- ── 2. Coordinator ─────────────────────────────────── -->
+  <div class="card c-coordinator">
+    <div class="card-title">
+      <span class="tag tag-purple">coordinator</span>
+      Coordinator Agent
+      <span class="model-badge">claude-opus-4-7</span>
+    </div>
+    <div class="card-sub">src/agent/coordinator.py</div>
+    <div class="card-body">
+      Receives <code>commit_info</code> dict. Orchestrates the full pipeline: fetch diff → analyze →
+      write slides → save output. Has access to all tools + subagent delegation.
+    </div>
+
+    <div class="loop-box">
+      <div class="loop-box-title">Agent Loop — stop_reason handling</div>
+      <div class="loop-row">
+        <span class="loop-cond">stop_reason == "tool_use"</span>
+        <span class="loop-sep">→</span>
+        <span class="loop-action">dispatch tool(s) · append tool_result messages · continue loop</span>
+      </div>
+      <div class="loop-row">
+        <span class="loop-cond">stop_reason == "end_turn"</span>
+        <span class="loop-sep">→</span>
+        <span class="loop-action">extract text block · return path to caller</span>
+      </div>
+    </div>
+
+    <div class="escalation">
+      <strong>⚠ ESCALATION — skips auto-generation when:</strong><br>
+      commit message starts with <code>chore(deps-update)</code> &nbsp;·&nbsp;
+      empty diff &nbsp;·&nbsp;
+      only <code>dist/</code> <code>build/</code> or lock files changed
+    </div>
+  </div>
+
+  <div class="arrow-down">↓</div>
+  <div class="section-label">tools dispatched by coordinator</div>
+
+  <!-- ── 3. Tools + Subagents ───────────────────────────── -->
+  <div class="two-col">
+
+    <!-- LEFT: GitHub Tools + API -->
+    <div class="tool-col">
+      <div class="card c-tool">
+        <div class="card-title"><span class="tag tag-orange">tools</span> GitHub Tools</div>
+        <div class="card-sub">src/tools/github_tools.py</div>
+        <ul class="tool-list">
+          <li>
+            <span class="tool-name">fetch_commit_diff</span>
+            <span class="tool-desc">Returns unified diff for a commit SHA. Skips binary files. Returns <code>{sha, message, author, files[]}</code>. isError on API failure.</span>
+          </li>
+          <li>
+            <span class="tool-name">fetch_file_content</span>
+            <span class="tool-desc">Fetches file content at a specific ref. UTF-8 only — graceful error on binaries.</span>
+          </li>
+        </ul>
+      </div>
+
+      <div class="arrow-down">↓</div>
+
+      <div class="card c-api">
+        <div class="card-title"><span class="tag tag-blue">external</span> GitHub REST API</div>
+        <div class="card-sub">api.github.com · Authorization: Bearer GITHUB_TOKEN</div>
+        <div class="api-endpoints">
+          <div class="api-endpoint">GET /repos/{owner}/{repo}/commits/{sha}</div>
+          <div class="api-endpoint">GET /repos/{owner}/{repo}/contents/{path}?ref={sha}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Presentation Tools + Subagents -->
+    <div class="tool-col">
+      <div class="card c-tool">
+        <div class="card-title"><span class="tag tag-orange">tools</span> Presentation Tools</div>
+        <div class="card-sub">src/tools/presentation_tools.py</div>
+        <ul class="tool-list">
+          <li>
+            <span class="tool-name">write_presentation</span>
+            <span class="tool-desc">Saves Marp Markdown to <code>output/</code>. Call ONCE with final content only.</span>
+          </li>
+          <li>
+            <span class="tool-name">delegate_to_subagent</span>
+            <span class="tool-desc">Routes to <code>diff_analyzer</code> or <code>slide_writer</code>. All context must be in the prompt — subagents are isolated.</span>
+          </li>
+        </ul>
+      </div>
+
+      <div class="arrow-down">↓</div>
+      <div class="section-label">specialist subagents · isolated context · no inheritance</div>
+
+      <div class="subagent-stack">
+        <div class="card c-subagent">
+          <div class="card-title">
+            <span class="tag tag-red">subagent</span>
+            diff_analyzer
+            <span class="model-badge">claude-haiku-4-5</span>
+          </div>
+          <div class="card-sub">src/agent/subagents/diff_analyzer.py · fast · structured output</div>
+          <div class="card-body">Parses raw git diff + commit message into a structured JSON analysis.</div>
+          <div class="schema-block">
+            <span class="schema-key">summary</span>:          <span class="schema-type">str</span><br>
+            <span class="schema-key">changed_areas</span>:   <span class="schema-type">list[str]</span><br>
+            <span class="schema-key">key_changes</span>:     <span class="schema-type">list[{file, type, description}]</span><br>
+            <span class="schema-key">impact</span>:          <span class="schema-type">none | low | medium | high</span><br>
+            <span class="schema-key">impact_reason</span>:   <span class="schema-type">str</span><br>
+            <span class="schema-key">presentation_angle</span>: <span class="schema-type">str</span>
+          </div>
+          <div class="isolation-badge">⚠ ISOLATED — full context must be passed in prompt</div>
+        </div>
+
+        <div class="card c-subagent">
+          <div class="card-title">
+            <span class="tag tag-red">subagent</span>
+            slide_writer
+            <span class="model-badge">claude-sonnet-4-6</span>
+          </div>
+          <div class="card-sub">src/agent/subagents/slide_writer.py · creative · 5–8 slides</div>
+          <div class="card-body">Converts diff analysis JSON + commit metadata into a Marp Markdown slide deck.</div>
+          <div class="schema-block">
+            <span class="schema-key">Input</span>:  diff_analyzer JSON + commit metadata<br>
+            <span class="schema-key">Output</span>: Marp Markdown <span class="schema-val">(---marp: true theme: default---)</span><br>
+            <span class="schema-key">Slides</span>: title · what changed · per-area detail · impact
+          </div>
+          <div class="isolation-badge">⚠ ISOLATED — full context must be passed in prompt</div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- end two-col -->
+
+  <div class="arrow-down">↓</div>
+  <div class="section-label">output pipeline · github actions post-processing</div>
+
+  <!-- ── 4. Output ───────────────────────────────────────── -->
+  <div class="card c-output">
+    <div class="card-title"><span class="tag tag-teal">output</span> Output Pipeline</div>
+    <div class="card-sub">.github/workflows/presentation.yml</div>
+    <div class="output-steps">
+      <div class="output-step">output/presentation.md</div>
+      <div class="output-arrow">→</div>
+      <div class="output-step">Marp CLI</div>
+      <div class="output-arrow">→</div>
+      <div class="output-step">presentations/presentation.html</div>
+      <div class="output-arrow">→</div>
+      <div class="output-step">git commit</div>
+      <div class="output-arrow">→</div>
+      <div class="output-step">git push</div>
+    </div>
+  </div>
+
+  <!-- ── Legend ─────────────────────────────────────────── -->
+  <div class="legend">
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#58a6ff"></div>GitHub / External API
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#3fb950"></div>GitHub Actions / Output
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#bc8cff"></div>Coordinator Agent (Opus)
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#ffa657"></div>Custom Tools
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#ff7b72"></div>Specialist Subagents (isolated)
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#39d353"></div>Output Pipeline
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
