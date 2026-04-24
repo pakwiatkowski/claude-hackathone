@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir src *)",
+      "Bash(mkdir src/agents)",
+      "Bash(mkdir src/agents/specialists)",
+      "Bash(mkdir src/tools)",
+      "Bash(mkdir src/hooks)",
+      "PowerShell([System.IO.File]::ReadAllText\\(\"C:\\\\Users\\\\p.a.kwiatkowski\\\\Documents\\\\hack\\\\docs\\\\requirements.md\"\\))"
+    ]
+  }
+}
